@@ -1,5 +1,5 @@
 {
-  "name": "elysia-ai",
+  "name": "@root/elysia-ai",
   "version": "0.1.0",
   "private": true,
   "packageManager": "yarn@4.7.0",
