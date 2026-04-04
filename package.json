@@ -4,9 +4,7 @@
   "private": true,
   "packageManager": "yarn@4.7.0",
   "workspaces": [
-    "packages/core",
-    "packages/runtime",
-    "packages/body"
+    "packages/*"
   ],
   "scripts": {
     "build": "turbo run build",
@@ -14,6 +12,15 @@
     "lint": "turbo run lint",
     "test": "vitest run"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/Elysia.A.I..git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/Elysia.A.I.",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/Elysia.A.I./issues"
+  },
+  "author": "PinkElysiaDev",
   "devDependencies": {
     "turbo": "^2.0.0",
     "vitest": "^1.6.0"

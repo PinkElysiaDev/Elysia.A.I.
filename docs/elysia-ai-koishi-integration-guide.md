@@ -207,7 +207,95 @@ plugins:
 
 ---
 
-## 四、koishi-app workspace 配置
+## 四、标准 Koishi monorepo 的工程基线（新增）
+
+结合 Koishi 官方开发文档与 cookbook 中 workspace / testing 的实践，可以把“标准 Koishi monorepo 项目”抽象为以下几个工程基线：
+
+### 4.1 根 workspace 必须稳定覆盖全部包
+
+根 `package.json` 通常应使用：
+
+```json
+"workspaces": [
+  "packages/*"
+]
+```
+
+而不是只枚举当前已经接入构建链的个别包。  
+原因是：
+
+- 新增包不应反复修改根 workspace 配置
+- monorepo 的 build graph 应由统一 glob 管理
+- 工具链（lint / test / build / publish）对整个 packages 目录的认知应保持一致
+
+---
+
+### 4.2 必须区分“宿主入口包”和“内部库包”
+
+在 Koishi monorepo 中，不是所有包都承担同样角色。
+
+#### 宿主入口包
+会被 Koishi Loader 直接加载，例如：
+
+- `runtime`
+- `body`
+
+这些包必须满足：
+- 标准 Koishi 插件命名
+- `main/module/typings/exports`
+- `peerDependencies.koishi`
+- `koishi` 元信息
+- 双产物（CJS + ESM）
+
+#### 内部库包
+只作为 workspace 内部依赖，例如：
+
+- `core`
+- `shared`
+- 未来的部分能力包
+
+这些包不一定都要变成 Koishi 插件，但至少要有稳定的：
+- 类型入口
+- 导出边界
+- workspace 消费方式
+
+---
+
+### 4.3 build 必须分为“源码层”和“交付层”
+
+#### 源码层
+保证 TypeScript / NodeNext 语义正确：
+- `.js` 显式扩展名
+- 禁止目录导入省略 `index.js`
+- 测试文件与正式构建分离
+
+#### 交付层
+保证 Koishi Loader 能稳定加载：
+- `index.cjs`
+- `index.mjs`
+- `index.d.ts`
+- `exports.require/import/types`
+
+标准 monorepo 不能只停留在“源码层通过”。
+
+---
+
+### 4.4 测试不仅要测函数，还要测宿主接入
+
+Koishi cookbook 的 testing 实践意味着，最终不应只满足：
+
+- unit test
+- 类型检查
+- build 成功
+
+还应包含：
+- 插件入口 `apply()` 行为验证
+- 宿主级集成测试
+- `koishi start` 下的实际加载验证
+
+---
+
+## 五、koishi-app workspace 配置
 
 koishi-app 的 `package.json` 已包含：
 
@@ -218,11 +306,14 @@ koishi-app 的 `package.json` 已包含：
 ]
 ```
 
-这意味着 `external/elysia-ai/packages/core`、`packages/runtime`、`packages/body` 已经会被 koishi-app 的 workspace 识别，**不需要额外修改 koishi-app 的 package.json**。
+这意味着 `external/elysia-ai/packages/*` 可以被根应用侧 workspace 识别。  
+但这**不等于** `elysia-ai` 自己已经是标准 monorepo 根。
+
+`koishi-app` 识别你，不代表你内部工程规范已经完全收口。
 
 ---
 
-## 五、当前配置差距（修正版）
+## 六、当前配置差距（修正版）
 
 | 项目 | 当前状态 | 说明 |
 |------|---------|------|
@@ -239,7 +330,124 @@ koishi-app 的 `package.json` 已包含：
 
 ---
 
-## 六、执行 build 的命令
+## 七、标准化整改方案（新增）
+
+下面这部分是将 `elysia-ai` 对齐为更标准 Koishi monorepo 项目的具体整改方案。
+
+### P0：宿主入口包收口（最高优先级）
+
+#### 目标
+让 `runtime` / `body` 真正成为标准 Koishi 插件入口包。
+
+#### 必须完成
+1. 输出双产物：
+   - `lib/index.cjs`
+   - `lib/index.mjs`
+   - `lib/index.d.ts`
+2. `package.json` 标准化：
+   - `main`
+   - `module`
+   - `typings`
+   - `exports`
+   - `koishi`
+3. `koishi start` 实际加载成功
+
+#### 为什么是 P0
+因为这是“宿主能不能真正加载”的直接前提。
+
+---
+
+### P1：根 workspace 标准化
+
+#### 当前问题
+根 `workspaces` 只列出少数包，会导致：
+- build graph 不完整
+- 新包接入成本高
+- 工具链对全仓感知不一致
+
+#### 整改目标
+改成：
+
+```json
+"workspaces": [
+  "packages/*"
+]
+```
+
+#### 影响
+- monorepo 更符合标准 workspace 预期
+- 后续 perception / cognition / persona 等包能自然进入工程图谱
+
+---
+
+### P1：定义双模板包规范
+
+#### 宿主入口包模板
+适用于：
+- `runtime`
+- `body`
+
+要求：
+- `koishi-plugin-*` 命名
+- 双产物
+- `exports`
+- `peerDependencies.koishi`
+- `koishi` 元信息
+
+#### 内部库包模板
+适用于：
+- `core`
+- `shared`
+- 其他暂不直接挂入 `koishi.yml` 的能力包
+
+要求：
+- 清晰 `types`
+- 稳定 `exports`
+- 明确是否允许外部消费
+
+---
+
+### P1：统一 build 策略
+
+建议正式固定为：
+
+- 内部库包：`tsc`
+- 宿主入口包：`tsc --emitDeclarationOnly + esbuild`
+- `turbo`：统一编排，不负责替代打包契约
+
+这样既保留当前 monorepo 结构，又对齐 Koishi 插件的宿主要求。
+
+---
+
+### P2：补宿主集成测试
+
+建议新增至少三类验证：
+
+1. **包级单元测试**
+2. **插件入口测试**
+   - `apply(ctx)` 是否正常挂载
+3. **宿主级验证**
+   - `koishi start` 实际加载成功
+
+如果只停留在 unit test 和 build 成功，仍不算完成宿主适配。
+
+---
+
+### P2：补全根仓库与包元信息
+
+包括但不限于：
+
+- `repository`
+- `homepage`
+- `bugs`
+- `files`
+- 更清晰的包分类说明
+
+这不仅影响可读性，也会影响 clone / scaffolding / publish / tooling 的行为一致性。
+
+---
+
+## 八、执行 build 的命令
 
 ### 源码层 build（当前可用）
 在 elysia-ai 目录下：
@@ -284,7 +492,7 @@ yarn build
 
 ---
 
-## 七、验证（修正版）
+## 九、验证（修正版）
 
 ### 第一步：源码层验证
 build 完成后，先检查最基础产物：

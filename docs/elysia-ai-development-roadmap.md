@@ -1099,3 +1099,292 @@
 - Phase 1 的“内部工程链”已接近完成
 - 但 Phase 1 的“宿主接入链”仍未完成
 - 所以 Phase 1 **仍然未正式完结**
+
+---
+
+## 十二、对齐标准 Koishi monorepo 的整改工作包（新增）
+
+这一节用于把当前项目从“自定义 monorepo 工程”继续推进到“更标准、更接近 Koishi 官方实践的 monorepo 项目”。
+
+这里不讨论顶层理念，而只讨论：
+
+- 当前还差什么
+- 为什么差
+- 应该按什么顺序整改
+
+---
+
+### 12.1 当前总体判断
+
+当前 `elysia-ai` 已经具备：
+
+- 根 workspace
+- packages 分层
+- turbo 编排
+- TypeScript + Vitest + docs 体系
+- runtime/body/core 的第一轮实现
+
+所以它已经不是“杂乱项目”，而是：
+
+> **一个有明确架构方向、但工程规范尚未完全收口的 Koishi 宿主型 monorepo。**
+
+与标准 Koishi monorepo 的差距，不在于“有没有 packages 目录”，而在于：
+
+1. 根 workspace 范围还不够标准化
+2. 宿主入口包与内部库包还没有完全分层治理
+3. 宿主入口包交付形态还未完全收口
+4. 测试还没有充分覆盖宿主接入层
+5. 根仓库和各包的元信息还不够完整
+
+---
+
+### 12.2 P0：宿主入口包标准化收口
+
+#### 目标
+让 `runtime` / `body` 真正成为：
+
+> **标准 Koishi 插件包，而不是只是在 workspace 内部可编译的包。**
+
+#### 必须完成
+- 标准插件命名
+- `main/module/typings`
+- `exports.require/import/types`
+- `koishi` 元信息
+- `peerDependencies.koishi`
+- 双产物：
+  - `lib/index.cjs`
+  - `lib/index.mjs`
+  - `lib/index.d.ts`
+
+#### 当前状态
+- 已识别问题
+- 已开始从单 ESM 产物向双产物迁移
+- 但仍需继续以“宿主实际加载成功”为最终验收
+
+#### 验收标准
+- `require.resolve('<plugin>/package.json')` 成功
+- `koishi start` 成功加载
+- 无以下报错：
+  - `ERR_UNSUPPORTED_DIR_IMPORT`
+  - `ERR_MODULE_NOT_FOUND`
+  - `Class extends value #<Object> is not a constructor`
+
+---
+
+### 12.3 P1：根 workspace 范围标准化
+
+#### 当前问题
+根 `workspaces` 如果只列出少数包，例如只包含：
+
+- `core`
+- `runtime`
+- `body`
+
+那么会带来：
+
+- build graph 不完整
+- 新包接入要频繁修改根配置
+- monorepo 与工具链对“全仓有哪些包”感知不一致
+
+#### 整改方向
+统一改为：
+
+```json
+"workspaces": [
+  "packages/*"
+]
+```
+
+#### 目标
+- 所有能力包自动进入工程图谱
+- perception / cognition / persona / observatory 等不再是“名义存在、工程未接入”
+- 更符合标准 workspace 设计习惯
+
+#### 验收标准
+- 根 build graph 能识别所有 `packages/*`
+- 新增能力包不需要再改根 workspace 声明
+
+---
+
+### 12.4 P1：定义“宿主入口包 / 内部库包”双模板
+
+#### 当前问题
+现在包虽然都在 `packages/` 里，但角色还没完全工程化区分：
+
+- 哪些是宿主入口插件
+- 哪些是内部契约库
+- 哪些是未来可能独立发布的能力包
+
+#### 整改方向
+建立两套正式模板：
+
+##### A. 宿主入口包模板
+适用于：
+- `runtime`
+- `body`
+
+要求：
+- `koishi-plugin-*`
+- 双产物
+- `exports`
+- `peerDependencies.koishi`
+- `koishi` 元信息
+
+##### B. 内部库包模板
+适用于：
+- `core`
+- `shared`
+- 暂时不直接写入 `koishi.yml` 的能力包
+
+要求：
+- 清晰 `types`
+- 稳定 `exports`
+- 明确是否允许外部消费
+
+#### 验收标准
+- 所有包都能被归类到明确模板
+- package.json 结构不再混杂和随意演化
+
+---
+
+### 12.5 P1：统一 build 策略
+
+#### 当前问题
+现在项目中已经同时存在：
+- `tsc`
+- `NodeNext`
+- `turbo`
+- 宿主入口双产物需求
+
+如果不尽快统一，会导致：
+- 有些包只适合内部构建
+- 有些包适合宿主加载
+- 但工程规则没有明确分层
+
+#### 整改方向
+正式固定为：
+
+##### 内部库包
+- `tsc`
+
+##### 宿主入口包
+- `tsc --emitDeclarationOnly`
+- `esbuild` 输出 `cjs + mjs`
+
+##### 根层
+- `turbo` 只负责任务编排
+
+#### 验收标准
+- build 规则可被文档化
+- 所有开发窗口都按同一套路新增/修改包
+- 不再出现“某包为什么只出 index.js、某包为什么要双产物”的混乱
+
+---
+
+### 12.6 P2：补宿主集成测试
+
+#### 当前问题
+当前测试主要偏向：
+- unit test
+- 局部逻辑 test
+- runtime/body 的最小行为测试
+
+但对标准 Koishi monorepo 来说还不够。  
+缺的是：
+
+- 插件入口测试
+- 宿主集成测试
+- Loader 层验证
+
+#### 整改方向
+至少增加三类验证：
+
+1. **单元测试**
+   - 保持现有做法
+
+2. **插件入口测试**
+   - `apply(ctx)` 是否正常挂载
+   - ctx 扩展是否正确
+
+3. **宿主加载验证**
+   - `koishi start`
+   - loader 实际可加载
+
+#### 验收标准
+- 不是只知道“函数没错”
+- 而是知道“宿主层真的能跑”
+
+---
+
+### 12.7 P2：补齐根仓库与包元信息
+
+#### 当前问题
+部分自动化行为（如 clone、识别、发布、消费）会受这些字段影响：
+
+- `repository`
+- `homepage`
+- `bugs`
+- `author`
+- `files`
+- `exports`
+
+如果缺失，会导致：
+- 工具推断不稳定
+- clone/scaffold 行为不一致
+- monorepo 根身份不够清晰
+
+#### 整改方向
+根仓库和关键包都补齐元信息，至少对：
+
+- 根仓库
+- `runtime`
+- `body`
+- `core`
+
+先补齐。
+
+#### 验收标准
+- 根仓库 identity 清晰
+- 工具链对项目的识别更稳定
+- package metadata 更接近标准 Koishi 工程
+
+---
+
+### 12.8 P3：后续工具链风格进一步收口
+
+#### 说明
+这不是当前阻塞项，但值得保留为中后期工程治理目标。
+
+可选方向包括：
+- 进一步吸收 Koishi 生态里更统一的脚本命名风格
+- 视需要引入更标准的 build helpers
+- 统一 publish / release / changelog 策略
+
+这一层应建立在前面 P0/P1/P2 已经完成之后，而不是提前处理。
+
+---
+
+### 12.9 建议执行顺序（正式版）
+
+按优先级，推荐固定执行顺序如下：
+
+1. **P0：runtime/body 宿主收口**
+2. **P1：workspace 全量化**
+3. **P1：双模板包规范**
+4. **P1：统一 build 策略**
+5. **P2：宿主集成测试**
+6. **P2：根仓库与包元信息补齐**
+7. **P3：工具链进一步标准化**
+
+---
+
+### 12.10 结论
+
+对齐标准 Koishi monorepo 的关键，不是“目录看起来像不像”，而是：
+
+> **宿主入口包、内部库包、workspace 根、build 策略、测试策略是否真正形成一套稳定且一致的工程规范。**
+
+当前 `elysia-ai` 已经具备正确方向，但还没有完全收口。  
+因此，从 roadmap 的角度，下一阶段最重要的任务不是再扩展新能力，而是：
+
+> **先完成标准化整改，让现有架构成为真正稳定可持续演进的 Koishi monorepo。**

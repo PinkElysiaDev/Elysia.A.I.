@@ -5,9 +5,28 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/Elysia.A.I..git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/Elysia.A.I.",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/Elysia.A.I./issues"
+  },
+  "author": "PinkElysiaDev",
   "devDependencies": {
     "typescript": "^5.0.0"
   },
