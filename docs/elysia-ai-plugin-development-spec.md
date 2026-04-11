@@ -2,356 +2,302 @@
 
 ## 文档用途
 
-本文档用于规范 **Elysia A.I.** 生态中所有插件的开发标准，包括官方主包插件和第三方扩展插件。
+本文档用于约束 **Elysia A.I. 插件生态的当前有效开发规则**。  
+它的目标不是一次性定义未来所有扩展协议细节，而是回答下面几个实际问题：
 
-它的目标是：
+- 当前什么样的包可以被视为 Elysia A.I. 插件
+- 插件在工程上应遵守哪些最基本的边界
+- 配置、命名空间、生命周期接入和扩展数据应如何组织
+- 哪些内容已经形成正式约束，哪些仍属于后续待收口范围
 
-- 让插件开发者有统一的入口和规则可遵循
-- 让官方主系统可以对插件进行可靠的装配与校验
-- 让生态中不同插件之间不会相互冲突
-- 让运行时可以追踪和解释每个插件的行为
-
-任何接入 Elysia A.I. 系统的插件，都必须遵守本文档所定义的规范。
+**本文件正文只保留当前可以指导实际开发的规则。**  
+尚未在代码与 runtime 中正式落地的扩展协议，只保留为“后续待正式化事项”，不再写成看似已经完全定型的规范。
 
 ---
 
-## 1. 什么是插件
+## 一、什么是插件
 
-在 Elysia A.I. 语境下，插件是指：
+在 Elysia A.I. 语境下，插件指的是：
 
-> 任何向系统生命周期的某一层注入行为、能力或配置的扩展单元。
+> **向系统某一层注入能力、配置或处理逻辑的扩展单元。**
 
 插件可以是：
 
-- **官方生命层主插件**：如 `@elysia-ai/perception`、`@elysia-ai/behavior`
-- **官方能力扩展**：如 `@elysia-ai/brain-openai`
-- **第三方插件**：如自定义人格注入器、自定义记忆策略、自定义感知过滤器
-- **社区配套工具**：如配置生成器、调试工具、角色模板库
+- 官方主包插件
+  - 例如 `runtime`、`body`、`behavior`
+- 官方能力扩展
+  - 例如未来某个 `brain-*`、`model-gateway-*`
+- 第三方扩展
+  - 例如自定义 persona、memory、filter、tool 适配器
+- 调试或辅助工具
+  - 例如 observability、配置生成器、调试工具
 
-插件不是系统的"控制者"，而是系统"生命流水线"上的"能力扩展点"。
+插件不是“系统控制器”，而是系统主链上的：
+
+- 能力提供者
+- 行为扩展点
+- 配置消费方
+- 生命周期参与者
 
 ---
 
-## 2. 插件命名规范
+## 二、当前有效的插件边界
 
-### 2.1 官方插件命名
+## 2.1 插件必须服从主包分层
+插件必须明确属于某个层，或明确作为通用扩展存在。  
+当前长期保留的主包层包括：
 
-所有官方插件使用 scoped package 格式：
+- `body`
+- `perception`
+- `homeostasis`
+- `cognition`
+- `persona`
+- `behavior`
+- `dialogue`
+- `runtime`
+- `observatory`
+- `brain`
+- `model-gateway`
+- `extension`（通用扩展）
 
-```
+---
+
+## 2.2 插件不能绕过主链契约
+插件接入系统时，必须优先使用已经在 `core` 中定义的正式对象和事件，例如：
+
+- `Stimulus`
+- `ResponsePlan`
+- `DialogueTask`
+- `DialogueResult`
+- `BrainRequest / BrainResponse`
+- `ModelGatewayRequest / Response`
+- `CoreEventMap`
+
+也就是说：
+
+> **插件不应重新发明自己的内部语言。**
+
+---
+
+## 2.3 插件不能越层承担不属于自己的职责
+例如：
+
+- `body` 插件不应混入行为判断
+- `behavior` 插件不应直接变成 sender
+- `dialogue` 插件不应直接承担 provider routing
+- `brain` 插件不应直接变成 model-gateway
+- `model-gateway` 插件不应反向承担高层 dialogue 语义组织
+
+---
+
+## 三、命名与包组织规范
+
+## 3.1 官方插件命名
+官方包仍使用：
+
+```txt
 @elysia-ai/<name>
 ```
 
-示例：
+例如：
 - `@elysia-ai/core`
 - `@elysia-ai/runtime`
 - `@elysia-ai/body`
-- `@elysia-ai/perception`
-- `@elysia-ai/brain-openai`
 
-### 2.2 第三方插件命名
+---
 
-第三方插件建议使用反向域名格式，或带作者/组织前缀的格式：
+## 3.2 第三方插件命名
+第三方插件建议使用具备清晰来源前缀的名称，例如：
 
-```
-<reverse-domain>.<name>
-```
-
-或：
-
-```
+```txt
 elysia-plugin-<name>
 ```
 
-示例：
-- `com.example.persona-extension`
-- `elysia-plugin-weather-tool`
+或带组织前缀的 scoped package。
 
-### 2.3 配置命名空间命名
+重点不是一定采用某一种名字，而是：
 
-每个插件在配置文件的 `extensions` 区块内，必须使用自己的独立命名空间，命名规则与包名保持一致：
+- 名称稳定
+- 来源清晰
+- 不与官方包混淆
+
+---
+
+## 3.3 宿主入口包与内部库包要区分
+如果一个插件包会被 Koishi 直接加载，那么它属于：
+
+- **宿主入口包**
+
+如果一个包只被其他包依赖，不直接挂入宿主，则属于：
+
+- **内部库包**
+
+这两类包的要求不同：
+- 宿主入口包遵守 Koishi 插件交付规范
+- 内部库包重点保证类型、导出与 workspace 边界稳定
+
+---
+
+## 四、配置规范
+
+## 4.1 配置必须使用命名空间隔离
+插件配置应放入统一的扩展配置区，而不是平铺到顶层。
+
+推荐结构：
 
 ```json
 {
   "extensions": {
-    "@elysia-ai/persona": { ... },
-    "com.example.my-plugin": { ... }
+    "@elysia-ai/persona": {},
+    "@elysia-ai/dialogue": {},
+    "elysia-plugin-example": {}
   }
 }
 ```
 
-**禁止将配置字段平铺到顶层**，必须放在 `extensions[namespace]` 内。
+---
+
+## 4.2 插件只应消费自己的命名空间配置
+插件应只读取：
+
+- `extensions[自己的命名空间]`
+
+不应依赖：
+- 其他插件的私有配置区
+- 顶层未声明的隐式字段
+- 没有命名空间隔离的散乱配置
 
 ---
 
-## 3. Plugin Manifest 标准
+## 4.3 配置文件不应承载业务执行逻辑
+配置应该描述：
 
-每个插件都必须提供一个 `manifest`，用于向 runtime 声明自己的身份和能力。
+- 生命周期存在方式
+- 启用状态
+- 扩展参数
+- 行为偏好
+- 能力开关
 
-### 3.1 Manifest 结构
-
-```ts
-interface ElysiaPluginManifest {
-  // 插件唯一名称
-  name: string
-
-  // 插件版本（semver）
-  version: string
-
-  // 声明此插件兼容的 core API 版本范围（semver range）
-  coreApiVersion: string
-
-  // 插件所属的生命层
-  layer: ElysiaLayer
-
-  // 插件在 extensions 中使用的配置命名空间
-  configNamespace: string
-
-  // 此插件会消费的事件列表
-  consumesEvents?: string[]
-
-  // 此插件会产出的事件列表
-  producesEvents?: string[]
-
-  // 依赖的其他插件列表
-  dependencies?: string[]
-
-  // 插件执行优先级（数值越小越先执行，默认 100）
-  priority?: number
-
-  // 插件声明的可选能力标签
-  capabilities?: string[]
-}
-```
-
-### 3.2 生命层（ElysiaLayer）取值
-
-```ts
-type ElysiaLayer =
-  | 'body'
-  | 'perception'
-  | 'homeostasis'
-  | 'cognition'
-  | 'persona'
-  | 'behavior'
-  | 'dialogue'
-  | 'runtime'
-  | 'observatory'
-  | 'brain'
-  | 'model-gateway'
-  | 'extension'   // 通用扩展，不属于特定生命层
-```
-
-### 3.3 Manifest 最小示例
-
-```ts
-const manifest: ElysiaPluginManifest = {
-  name: '@elysia-ai/perception',
-  version: '0.1.0',
-  coreApiVersion: '^0.1.0',
-  layer: 'perception',
-  configNamespace: '@elysia-ai/perception',
-  consumesEvents: ['stimulus.received'],
-  producesEvents: ['perception.completed'],
-}
-```
+配置不应该直接变成：
+- 运行时脚本
+- 大段执行逻辑
+- 无边界的临时数据池
 
 ---
 
-## 4. 配置扩展标准
+## 五、事件与扩展数据规范
 
-生命体实例配置文件采用 JSON 格式，结构如下：
+## 5.1 当前正式扩展点应优先围绕事件与服务接口组织
+插件接入当前系统，优先使用两类稳定入口：
 
-### 4.1 配置文件顶层结构
-
-```json
-{
-  "version": "1.0",
-  "lifeInstances": [
-    {
-      "id": "elysia-main",
-      "type": "elysia-default",
-      "enabled": true,
-      "meta": {
-        "displayName": "Elysia"
-      },
-      "extensions": {
-        "@elysia-ai/persona": { ... },
-        "@elysia-ai/dialogue": { ... },
-        "com.example.plugin": { ... }
-      }
-    }
-  ]
-}
-```
-
-### 4.2 核心字段说明（不可被插件覆盖）
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `id` | string | 是 | 生命体唯一标识 |
-| `type` | string | 是 | 生命体类型，用于插件识别 |
-| `enabled` | boolean | 否 | 是否启用，默认 true |
-| `meta` | object | 否 | 通用元信息，供 runtime 和 observatory 使用 |
-| `extensions` | object | 否 | 插件扩展配置区，按命名空间隔离 |
-
-### 4.3 配置扩展规则
-
-- 每个插件只能读取 `extensions[自己的configNamespace]` 中的配置
-- 不允许读取其他插件命名空间的配置
-- 不允许把扩展字段平铺到顶层
+1. **事件**
+   - 通过 `CoreEventMap` 约定事件载荷
+2. **服务接口**
+   - 通过 `DialogueService`、`BrainService`、`ModelGatewayService` 等正式抽象组织调用边界
 
 ---
 
-## 5. Pipeline 注入标准
+## 5.2 插件扩展数据必须可追踪
+如果插件需要在主链上传递额外数据，应该满足：
 
-Elysia A.I. 的生命处理流程是一条流水线。  
-每个处理阶段（perception/homeostasis/behavior/...）都可以向后续阶段传递扩展信息。
-
-### 5.1 统一容器（PipelineContext）
-
-所有插件在流水线中通过统一容器读写数据：
-
-```ts
-interface PipelineContext<TCore = unknown> {
-  // 核心数据区（只读或受限）
-  core: TCore
-
-  // 扩展数据区（按插件命名空间写入）
-  ext: Record<string, Record<string, unknown>>
-
-  // 操作追踪区（自动填充，不需要手动写入）
-  trace: Array<{
-    plugin: string    // 写入操作的插件名
-    stage: string     // 操作发生的处理阶段
-    action: string    // 操作描述
-    at: number        // 时间戳
-  }>
-}
-```
-
-### 5.2 注入规则
-
-- 插件只能往 `ctx.ext[自己的configNamespace]` 写入
-- 禁止直接修改 `ctx.core` 的核心字段（除非 runtime 明确授权 mutate 权限）
-- 禁止写入其他插件命名空间的扩展区
-
-### 5.3 读取规则
-
-- 读取自己写入的扩展数据：`ctx.ext['@elysia-ai/my-plugin']`
-- 读取核心数据：`ctx.core.stimulus`、`ctx.core.life` 等
-- 下游插件可以读取任意上游插件的 ext 数据（但不能修改）
+- 有明确归属
+- 有明确阶段边界
+- 不污染核心对象语义
+- 后续可被 observability / trace 追踪
 
 ---
 
-## 6. Hook 注册标准
+## 5.3 不要假设扩展协议已经完全稳定
+当前仍有一些扩展协议处于设计推进中，例如：
 
-插件通过注册 hook 来参与生命流水线的处理过程。
+- 更完整的 plugin manifest
+- 更完整的 pipeline context
+- 更细粒度的 hook stage
+- 更正式的 mutate API / capability declaration
 
-### 6.1 Hook 接口
-
-```ts
-interface ElysiaPluginHook<T = unknown> {
-  // 此 hook 挂载的处理阶段
-  stage: string
-
-  // hook 执行函数
-  run(ctx: PipelineContext<T>): Promise<void> | void
-}
-```
-
-### 6.2 可用的处理阶段（stage）
-
-| stage | 触发时机 |
-|-------|----------|
-| `body.message.normalized` | body 层完成消息标准化后 |
-| `stimulus.received` | runtime 收到 stimulus 后 |
-| `perception.filter` | perception 做注意力筛选时 |
-| `perception.completed` | perception 完成后 |
-| `homeostasis.tick` | homeostasis 每次状态更新时 |
-| `homeostasis.updated` | homeostasis 完成更新后 |
-| `cognition.reasoning` | cognition 推理过程中 |
-| `cognition.completed` | cognition 完成推理后 |
-| `behavior.candidates` | behavior 生成候选行为时 |
-| `behavior.selected` | behavior 选定行为后 |
-| `dialogue.before.render` | dialogue 渲染前 |
-| `dialogue.after.render` | dialogue 渲染完成后 |
+这些内容未来会继续收口，但**当前不应假装它们已经完全定型**。
 
 ---
 
-## 7. 冲突与兼容标准
+## 六、当前推荐的插件开发方式
 
-### 7.1 冲突处理策略
+## 6.1 优先依赖 `core` 的正式契约
+开发插件时，优先检查：
 
-当多个插件在同一阶段操作同一类型数据时，默认行为如下：
+- `packages/core/src/types`
+- `packages/core/src/bus/event-map.ts`
+- `packages/core/src/dialogue`
+- `packages/core/src/brain`
+- `packages/core/src/repositories`
 
-- 每个插件写入自己的 namespace，**天然不冲突**
-- 如果需要影响核心对象，必须通过 runtime 提供的 mutate API，且需要声明意图
-
-### 7.2 版本兼容规则
-
-- 插件 manifest 中必须声明 `coreApiVersion`
-- runtime 在装配时校验兼容性：
-  - 不兼容：拒绝加载，记录错误
-  - 兼容：正常加载
-
-### 7.3 弃用周期规则
-
-- 当 core API 中某个接口需要变更时，至少保留一个小版本周期的兼容期
-- 在兼容期内，同时支持新旧接口，旧接口打 deprecation warning
-- 兼容期结束后，才移除旧接口
+如果 `core` 已经有正式对象，就不要在插件内部重新定义。
 
 ---
 
-## 8. 开发者检查清单
+## 6.2 优先通过正式边界接入
+例如：
+- 监听正式事件，而不是直接抓别的包的内部实例
+- 依赖正式 service 接口，而不是穿透调用实现细节
+- 写入扩展数据时保持命名空间和职责清晰
 
-开发一个 Elysia A.I. 插件时，请在发布前完成以下检查：
+---
+
+## 6.3 插件应该尽量“单职责”
+每个插件最好回答一个清晰问题：
+
+- 这是输入适配插件？
+- 这是行为规划插件？
+- 这是对话执行插件？
+- 这是模型路由插件？
+- 这是状态更新插件？
+- 这是调试/观测插件？
+
+不要把多个层的职责混在一个插件里。
+
+---
+
+## 七、当前最低开发检查清单
+
+开发一个 Elysia A.I. 插件时，至少应检查：
 
 ### 必须项
-- [ ] 提供了 `ElysiaPluginManifest`
-- [ ] `name` 符合命名规范
-- [ ] `coreApiVersion` 已声明
-- [ ] `layer` 已声明
-- [ ] `configNamespace` 已声明，且与包名一致
-- [ ] 所有配置只放在 `extensions[configNamespace]` 下
-- [ ] hook 的 `ext` 写入只使用自己的 namespace
-- [ ] 没有直接修改 `ctx.core` 的核心字段
+- [ ] 插件所属层清晰
+- [ ] 不绕过 `core` 正式契约
+- [ ] 配置使用独立命名空间
+- [ ] 不跨层承担不属于自己的职责
+- [ ] 不直接依赖其他包的内部实现细节
+- [ ] 对外暴露的接口或事件有清晰边界
 
 ### 推荐项
-- [ ] 提供了 `consumesEvents` 和 `producesEvents` 声明
-- [ ] 提供了 TypeScript 类型定义
-- [ ] 提供了最小测试用例
-- [ ] 提供了 README 说明
+- [ ] 有 README 或最小使用说明
+- [ ] 有最小测试或最小验证路径
+- [ ] 有日志字段与阶段标识
+- [ ] 能被 observability / trace 追踪
 
 ---
 
-## 9. 官方插件目录
+## 八、后续待正式化事项
 
-当前官方插件树及其命名空间：
+以下内容仍然有价值，但当前不应继续写成“已经完全定型的正式规范”：
 
-| 插件 | 包名 | 配置命名空间 | 所属层 |
-|------|------|-------------|--------|
-| 核心协议 | `@elysia-ai/core` | - | - |
-| 运行时 | `@elysia-ai/runtime` | - | runtime |
-| 躯体层 | `@elysia-ai/body` | `@elysia-ai/body` | body |
-| 感知层 | `@elysia-ai/perception` | `@elysia-ai/perception` | perception |
-| 内稳态层 | `@elysia-ai/homeostasis` | `@elysia-ai/homeostasis` | homeostasis |
-| 认知层 | `@elysia-ai/cognition` | `@elysia-ai/cognition` | cognition |
-| 人格层 | `@elysia-ai/persona` | `@elysia-ai/persona` | persona |
-| 行为层 | `@elysia-ai/behavior` | `@elysia-ai/behavior` | behavior |
-| 表达层 | `@elysia-ai/dialogue` | `@elysia-ai/dialogue` | dialogue |
-| 观察层 | `@elysia-ai/observatory` | `@elysia-ai/observatory` | observatory |
-| OpenAI 大脑 | `@elysia-ai/brain-openai` | `@elysia-ai/brain-openai` | brain |
-| Gemini 大脑 | `@elysia-ai/brain-gemini` | `@elysia-ai/brain-gemini` | brain |
-| Claude 大脑 | `@elysia-ai/brain-claude` | `@elysia-ai/brain-claude` | brain |
-| 通用兼容大脑 | `@elysia-ai/brain-openai-compatible` | `@elysia-ai/brain-openai-compatible` | brain |
+- 完整 plugin manifest 结构
+- 完整 pipeline context 标准
+- 完整 hook stage 列表
+- 统一 mutate API
+- capabilities 的正式注册与校验机制
+- runtime 对插件兼容性和依赖的自动校验模型
+
+这些内容应在：
+- 代码真实落地
+- core 契约稳定
+- runtime 装配逻辑明确
+
+之后再升级为正式规范。
 
 ---
 
-## 10. 与项目顶层设计的关系
+## 九、一句话总结
 
-本文档是 `elysia-ai-top-level-design.md` 中"扩展协议与开发生态"设计原则的具体落地。
+这份文档当前的核心作用是：
 
-顶层设计文档负责说明"为什么要这样设计"，本文档负责说明"开发者应该怎么做"。
-
-两份文档需要保持同步，任何一方的重大变更都应同步更新另一方。
+> **约束 Elysia A.I. 插件开发时必须遵守的现行边界，而不是提前把尚未落地的未来扩展协议写成看似已经定型的完整标准。**

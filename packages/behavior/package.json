@@ -24,5 +24,16 @@
       "import": "./lib/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "workspace:*",
+    "koishi-plugin-elysia-ai-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "koishi": "^4.18.0"
+  },
+  "devDependencies": {
+    "koishi": "^4.18.0",
+    "typescript": "^5.0.0"
   }
 }

@@ -31,24 +31,45 @@ export * from './sender/index.js'
 export * from './adapters/koishi/index.js'
 
 export function apply(ctx: Context, config: Config) {
+  const logger = ctx.logger('elysia-ai-body')
+
+  logger.info('body plugin apply started', {
+    plugin: 'elysia-ai-body',
+    phase: 'apply',
+  })
+
   // 获取 runtime 实例
   // 注意：需要 runtime 插件先被加载
   const runtime = ctx['elysia-ai-runtime']
   
   if (!runtime) {
-    ctx.logger('elysia-ai-body').error('Runtime not found. Make sure elysia-ai-runtime is loaded before elysia-ai-body.')
+    logger.error('runtime not found; body plugin cannot continue', {
+      plugin: 'elysia-ai-body',
+      phase: 'apply',
+    })
     return
   }
+
+  logger.debug('runtime dependency resolved for body plugin', {
+    plugin: 'elysia-ai-body',
+    phase: 'apply',
+  })
 
   // 创建并注册 Koishi 适配器
   const adapter = new KoishiBodyAdapter(ctx, runtime, config)
   adapter.registerListeners()
   
-  ctx.logger('elysia-ai-body').info('Body adapter registered')
+  logger.info('body adapter registered', {
+    plugin: 'elysia-ai-body',
+    phase: 'adapter',
+  })
 
   // 插件卸载时清理
   ctx.on('dispose', () => {
     adapter.removeListeners()
-    ctx.logger('elysia-ai-body').info('Body adapter disposed')
+    logger.info('body adapter disposed', {
+      plugin: 'elysia-ai-body',
+      phase: 'dispose',
+    })
   })
 }

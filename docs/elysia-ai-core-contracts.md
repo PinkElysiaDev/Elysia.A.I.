@@ -233,7 +233,40 @@
 
 ---
 
-### 5.7 `BehaviorCandidate`
+### 5.7 `DialogueTask`
+
+表示从 behavior / planner 流向 dialogue 层的正式任务对象。
+
+### 当前阶段建议包含的最小字段
+- `lifeId?`
+- `habitatId?`
+- `scope`
+- `sourceStimulusIds`
+- `mode`
+- `messages`
+- `metadata?`
+
+### 当前阶段目的
+作为 `behavior -> dialogue` 的正式桥梁对象，避免后续 dialogue 层重新发明输入模型。
+
+---
+
+### 5.8 `DialogueResult`
+
+表示 dialogue 层返回的正式结果对象。
+
+### 当前阶段建议包含的最小字段
+- `taskId?`
+- `output`
+- `messages?`
+- `metadata?`
+
+### 当前阶段目的
+作为后续 sender / observability / trace 的统一输出对象。
+
+---
+
+### 5.9 `BehaviorCandidate`
 
 表示候选行为。
 
@@ -249,7 +282,7 @@
 
 ---
 
-### 5.8 `BehaviorDecision`
+### 5.10 `BehaviorDecision`
 
 表示最终选中的行为决定。
 
@@ -264,7 +297,7 @@
 
 ---
 
-### 5.9 `VitalState`
+### 5.11 `VitalState`
 
 表示最小生命体征状态。
 
@@ -280,7 +313,7 @@
 
 ---
 
-### 5.10 `RhythmState`
+### 5.12 `RhythmState`
 
 表示节律状态。
 
@@ -365,7 +398,16 @@ domain.action
 - `homeostasis.updated`
 - `cognition.completed`
 - `behavior.selected`
+- `dialogue.started`
 - `dialogue.generated`
+- `dialogue.completed`
+- `dialogue.failed`
+- `brain.requested`
+- `brain.completed`
+- `brain.failed`
+- `gateway.requested`
+- `gateway.responded`
+- `gateway.failed`
 
 ### 当前阶段不要做什么
 - 不要写进程内 EventEmitter 实现
@@ -384,10 +426,11 @@ domain.action
 - `LifeRepository`
 - `ProjectionRepository`
 - `LifeStateRepository`
+- `StimulusRepository`
+- `BondRepository`
 - `TraceRepository`
 
 ### 后续可扩展但当前不必优先
-- `BondRepository`
 - `ThreadRepository`
 - `MemoryRepository`
 - `HabitatRepository`
@@ -429,8 +472,22 @@ domain.action
 ### 当前阶段在 `core` 中需要定义的内容
 - `BrainRequest`
 - `BrainResponse`
-- `BrainCapabilities`
+- `BrainCapability`
 - `BrainService` 接口
+
+其中当前正式方向应至少支持：
+- `task`
+- `lifeId`
+- `habitatId`
+- `capability`
+- `messages`
+- `metadata`
+
+并允许 `BrainResponse` 返回：
+- `output`
+- `messages?`
+- `capability?`
+- `metadata?`
 
 ### 当前阶段不要做的事
 - 不要写 OpenAI / Gemini / Claude 的 HTTP 客户端
@@ -457,7 +514,27 @@ domain.action
 ### 当前阶段在 `core` 中需要定义的内容
 - `ModelGatewayRequest`
 - `ModelGatewayResponse`
+- `ProviderDescriptor`
+- `RoutingResult`
+- `ModelUsage`
 - `ModelGatewayService` 接口
+
+其中当前正式方向应至少支持：
+- 请求侧：
+  - `task`
+  - `lifeId`
+  - `habitatId`
+  - `providerId`
+  - `model`
+  - `messages`
+  - `metadata`
+- 响应侧：
+  - `output`
+  - `messages?`
+  - `provider?`
+  - `usage?`
+  - `finishReason?`
+  - `metadata?`
 
 ### 当前阶段不要做的事
 - 不要实现具体 provider channel
@@ -465,6 +542,31 @@ domain.action
 - 不要写真实 provider 请求逻辑
 
 这些是 `packages/model-gateway` 的工作，不是 `core` 的工作。
+
+---
+
+### 10.3 `Dialogue` 服务抽象
+
+当前阶段在 `core` 中应补入：
+
+- `DialogueTask`
+- `DialogueResult`
+- `DialogueService`
+
+其职责是：
+
+- 接收来自 behavior / planner 的正式对话任务
+- 组织进入认知层前的对话执行入口
+- 为 sender / observability / trace 提供统一结果对象
+
+可以理解为：
+
+> Dialogue 负责“把计划转成正式对话任务，并产出可发送结果”。
+
+当前阶段不要做的事：
+- 不要直接接 provider
+- 不要直接做模型路由
+- 不要把 dialogue 写成 sender 本身
 
 ---
 
@@ -501,14 +603,22 @@ packages/core/src/
     event-bus.ts
 
   repositories/
+    bond.ts
     life.ts
     projection.ts
     state.ts
+    stimulus.ts
     trace.ts
+
+  dialogue/
+    dialogue.ts
 
   brain/
     brain.ts
     model-gateway.ts
+
+  types/
+    dialogue.ts
 
   errors/
     index.ts

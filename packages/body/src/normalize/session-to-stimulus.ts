@@ -13,28 +13,43 @@ import type { Stimulus } from '@elysia-ai/core'
  *
  * 设计说明：
  * - type 固定为 'utterance'（用户主动发言）
- * - platform / botId 等元信息放入 payload 供上层感知层使用
- * - 未来如需支持其他 StimulusType（如 system / reaction），应扩展此函数
+ * - 结构化平台字段提升为 Stimulus 正式字段
+ * - 仍保留 payload 作为扩展信息容器
  *
  * @param message 平台无关的消息对象
  * @returns 系统内部使用的 Stimulus 对象
  */
 export function platformMessageToStimulus(message: PlatformMessage): Stimulus {
+  const habitatId =
+    message.guildId ?? message.channelId ?? message.userId ?? 'unknown'
+
   return {
     id: message.id,
     type: 'utterance',
-    // 生境优先级：群 > 频道 > 私聊 > 未知
-    // 这决定了此刺激属于哪个"栖息地"
-    habitatId: message.guildId ?? message.channelId ?? message.userId ?? 'unknown',
-    actorId: message.userId,
     timestamp: message.timestamp ?? Date.now(),
+
+    habitatId,
+    actorId: message.userId,
+    threadId: message.replyToMessageId,
+    targetId: message.botId || undefined,
+
+    platform: message.platform,
+    botId: message.botId,
+    guildId: message.guildId,
+    channelId: message.channelId,
+    messageId: message.id,
+    replyToMessageId: message.replyToMessageId,
+
+    isDirectMessage: message.isDirectMessage,
+    isMentioned: message.isMentioned,
+    isReply: Boolean(message.replyToMessageId),
+    isSystemEvent: false,
+
     payload: {
       content: message.content ?? '',
-      // 保留平台元信息，供感知层（perception）解析使用
-      platform: message.platform,
-      botId: message.botId,
-      guildId: message.guildId,
-      channelId: message.channelId,
+    },
+    metadata: {
+      contentText: message.content ?? '',
     },
   }
 }

@@ -6,6 +6,7 @@ export * from './types/habitat.js'
 export * from './types/bond.js'
 export * from './types/thread.js'
 export * from './types/stimulus.js'
+export * from './types/dialogue.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod Schema（运行时校验，与上方类型一一对应）
@@ -26,13 +27,16 @@ export * from './bus/memory-event-bus.js'
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository 抽象接口（只有接口定义，不含 MongoDB/Redis 实现）
 // ─────────────────────────────────────────────────────────────────────────────
+export * from './repositories/bond.js'
 export * from './repositories/life.js'
 export * from './repositories/state.js'
+export * from './repositories/stimulus.js'
 export * from './repositories/trace.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Brain / Model Gateway 抽象接口
+// Dialogue / Brain / Model Gateway 抽象接口
 // ─────────────────────────────────────────────────────────────────────────────
+export * from './dialogue/dialogue.js'
 export * from './brain/brain.js'
 export * from './brain/model-gateway.js'
 

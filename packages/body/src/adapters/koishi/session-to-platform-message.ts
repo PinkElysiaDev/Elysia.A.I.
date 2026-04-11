@@ -8,6 +8,8 @@ import type { PlatformMessage } from '../../types/index.js'
  * @returns 平台无关的消息格式
  */
 export function sessionToPlatformMessage(session: Session): PlatformMessage {
+  const quote = (session.quote as { id?: string } | undefined) ?? undefined
+
   return {
     id: String(session.messageId ?? session.id),
     platform: session.platform,
@@ -17,5 +19,10 @@ export function sessionToPlatformMessage(session: Session): PlatformMessage {
     userId: session.userId,
     content: session.content ?? '',
     timestamp: session.timestamp,
+    replyToMessageId: quote?.id ? String(quote.id) : undefined,
+    isDirectMessage: !session.guildId,
+    isMentioned: Array.isArray(session.elements)
+      ? session.elements.some((element) => element.type === 'at')
+      : false,
   }
 }

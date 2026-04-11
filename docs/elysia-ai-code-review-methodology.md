@@ -230,81 +230,30 @@
 
 ---
 
-## 八、本轮分析结果（Phase 1 实现阶段）
+## 八、维护原则
 
-以下是对 Phase 1 代码（core / runtime / body）使用本方法进行分析后的完整输出。
+为了让这份文档长期有效，后续维护时应遵守以下规则：
 
----
+1. **本文件只保留稳定的方法论**
+   - 保留分析维度、扫描流程、优先级规则、输出模板
+   - 不保留某一轮具体代码审查结果
 
-### 8.1 分析范围
+2. **具体问题清单应写入独立记录**
+   - 可放到：
+     - `elysia-ai-development-roadmap.md`
+     - 单独的阶段性 review 记录
+     - PR / commit 说明
+   - 不应继续堆积在本方法论文档中
 
-- `packages/core/src/bus/`
-- `packages/core/src/plugin/`
-- `packages/runtime/src/lifecycle/`
-- `packages/runtime/src/registry/`
-- `packages/runtime/src/manifest/`
-- `packages/runtime/src/runtime.ts`
-- `packages/body/src/`
-
----
-
-### 8.2 问题表格
-
-| ID | 文件 | 问题描述 | 维度 | 严重程度 | 符合设计原则 | 修复方向 |
-|----|------|----------|------|----------|---------|-|
-| C1 | `lifecycle/minimal-lifecycle.ts` | `starting/stopping` 状态下再次调用 `start/stop` 没有被拒绝，存在状态污染风险 | 正确性 | 高 | ✓ | 在 `start()` 检查中也拒绝 `starting/running` 状态；`stop()` 检查中也拒绝 `stopping/stopped` 状态 |
-| C2 | `runtime/src/runtime.ts` | `stop()` 在 `stopped` 状态下会抛出异常，但外层调用者没有处理 | 健壮性 | 高 | ✓ | runtime 层对 `stopped` 状态的 `stop()` 调用静默处理（幂等） |
-| C3 | `body/src/index.ts` + `body/adapters/koishi/koishi-body-adapter.ts` | `handlePlatformMessage` 用 `sessionToStimulus()` 构造 Stimulus，`KoishiBodyAdapter` 内联构造 Stimulus，两条路径不一致 | 正确性 + 一致性 | 高 | 违反"刺激优先于消息"一致性 | 提取统一的 `platformMessageToStimulus()` 函数，两者都调用它 |
-| C4 | `body/src/normalize/session-to-stimulus.ts` | 这个文件的实现与 KoishiBodyAdapter 里的内联逻辑可能语义不同，存在行为分叉 | 正确性 | 高 | 违反"不允许把转换逻辑分散在多处" | 统一 Stimulus 构造路径，移除或整合旧的 `sessionToStimulus` |
-| R1 | `manifest/loader.ts` | 错误信息只抛出字段名（如 `'version'`），缺乏完整的错误描述 | 健壮性 | 中 | ✓ | 改为 `Manifest validation error: missing required field "version"` 格式 |
-| R2 | `runtime/src/runtime.ts` | `meta?.['name'] as string ?? instance.id` 访问方式不清晰，有潜在类型转换问题 | 健壮性 + 可读性 | 中 | ✓ | 提取 `resolveLifeName(instance)` 工具函数，明确逻辑 |
-| ST1 | `body/src/index.ts` | Koishi 插件代码（有 Koishi 副作用）和纯逻辑函数混在同一文件中 | 可测试性 + 一致性 | 中 | 符合"躯体层职责"，但影响可测试性 | 把 `handlePlatformMessage` 拆到 `body/src/message-handler.ts`，`index.ts` 只保留插件入口 |
-| RD1 | `body/adapters/koishi/koishi-body-adapter.ts` | Stimulus 构造逻辑（包括 habitatId 选取）内联在 callback 里，难以阅读和修改 | 可读性 | 中 | ✓ | 提取 `platformMessageToStimulus(message)` 函数 |
-| RD2 | `lifecycle/minimal-lifecycle.ts` | `start/stop` 方法缺少注释说明合法的前置状态和后置状态 | 可读性 | 低 | ✓ | 补充 JSDoc 注释说明状态转移 |
-| RD3 | 所有主要导出函数 | JSDoc 注释覆盖不完整，部分接口有注释，部分实现类没有 | 可读性 | 低 | ✓ | 统一补全主要 public 接口的 JSDoc |
-| ST2 | `runtime/src/manifest/` | 缺少 `index.ts` 统一导出，调用方需要分别引用 `types` 和 `loader` | 一致性 | 低 | ✓ | 新增 `manifest/index.ts` |
-| ST3 | `core/src/index.ts` | 缺少区段注释，导出内容多但没有分类说明 | 可读性 | 低 | ✓ | 加区段注释 |
-| ST4 | `vitest.config.ts` | `alias` 放在 `test` 块内，标准 vitest 写法应在 `resolve.alias` | 一致性 | 低 | ✓ | 移到 `resolve.alias` |
+3. **如果某类问题具有长期复发价值**
+   - 应提炼成“通用审查规则”
+   - 再补回本文件
+   - 而不是直接粘贴某次具体问题表
 
 ---
 
-### 8.3 二次校验结论
+## 九、一句话总结
 
-基于项目设计文档 `elysia-ai-top-level-design.md` 的二次校验结论：
+这份文档的目标不是保存某次 review 结果，而是：
 
-**保留（符合或不违反设计原则）：**
-- C1、C2、R1、R2、RD1、RD2、RD3、ST2、ST3、ST4
-- 这些优化都在单层内部，不破坏分层边界
-
-**调整说明（违反设计原则需特别注意）：**
-- **C3/C4（最重要）**：Stimulus 构造路径不统一，直接违反"刺激优先于消息"原则——如果不同路径构造出的 Stimulus 语义不同，系统对"刺激"的理解就会出现分裂，这是高优先级问题
-- **ST1**：body/src/index.ts 混合了纯逻辑和 Koishi 依赖，不违反分层，但影响"可插拔"原则。拆分后，未来如果需要支持其他平台，只需新增 adapter，不需要动 `handlePlatformMessage`
-
-**新增（由设计原则推导出但之前未发现的优化点）：**
-- **NEW-1**：`runtime.receiveStimulus()` 里目前只检查 `isRunning()`，但没有在 `Stimulus` 上附加 `lifeInstanceId`——按设计文档，runtime 应该根据 stimulus 决定"哪些生命体能感知到"，但目前跳过了这一步
-  - 严重程度：**中**（Phase 1 可以先留占位，但需要注释说明这是后续补充点）
-- **NEW-2**：`loadManifest` 目前在 runtime 未 `running` 时依然可以调用，但生命体状态应该在运行中才能被激活
-  - 严重程度：**中**（可以在文档和注释里标注这个行为，避免未来出现错误假设）
-
----
-
-### 8.4 修复优先级排序（最终版）
-
-```
-阶段 1（必须做，影响正确性）
-  C3/C4 → 统一 Stimulus 构造路径（提取 platformMessageToStimulus()）
-  C1 → lifecycle starting/stopping 状态拦截
-  C2 → runtime stop() 幂等保护
-
-阶段 2（建议做，提升健壮性和可维护性）
-  NEW-1 → receiveStimulus 添加占位注释（后续补 life routing 逻辑）
-  NEW-2 → loadManifest 在未 running 时的行为说明
-  R1 → manifest 错误信息规范化
-  R2 → loadManifest 的 meta 处理
-  ST1 → 拆分 body/src/index.ts
-
-阶段 3（规范化，低优先级）
-  ST2 → manifest/index.ts 统一导出
-  ST3 → core/src/index.ts 区段注释
-  ST4 → vitest.config.ts 规范
-  RD2/RD3 → 注释补全
+> **为 Elysia A.I. 提供一套可重复执行、可跨阶段复用的代码审查方法。**

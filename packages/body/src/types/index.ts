@@ -7,4 +7,7 @@ export interface PlatformMessage {
   userId?: string
   content?: string
   timestamp?: number
+  replyToMessageId?: string
+  isDirectMessage?: boolean
+  isMentioned?: boolean
 }

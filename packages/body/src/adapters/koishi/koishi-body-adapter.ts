@@ -32,19 +32,65 @@ export class KoishiBodyAdapter {
    * 注册消息监听
    */
   registerListeners(): void {
+    const logger = this.ctx.logger('elysia-ai-body')
+
+    logger.debug('registering koishi body adapter listeners', {
+      plugin: 'elysia-ai-body',
+      phase: 'adapter',
+    })
+
     // 监听所有消息
     const dispose = this.ctx.on('message', async (session) => {
       try {
+        logger.info('body received platform message', {
+          plugin: 'elysia-ai-body',
+          phase: 'input',
+          platform: session.platform,
+          botId: session.bot?.selfId,
+          channelId: session.channelId,
+          userId: session.userId,
+        })
+
         // Step 1: Koishi session → 平台无关消息
         const platformMessage = sessionToPlatformMessage(session)
+
+        logger.debug('session converted to platform message', {
+          plugin: 'elysia-ai-body',
+          phase: 'normalize',
+          platform: platformMessage.platform,
+          botId: platformMessage.botId,
+          channelId: platformMessage.channelId,
+          userId: platformMessage.userId,
+          messageId: platformMessage.id,
+          contentPreview: platformMessage.content?.slice(0, 120),
+        })
         
         // Step 2: 平台无关消息 → 系统内部刺激（统一转换入口）
         const stimulus = platformMessageToStimulus(platformMessage)
+
+        logger.info('platform message converted to stimulus', {
+          plugin: 'elysia-ai-body',
+          phase: 'normalize',
+          stimulusId: stimulus.id,
+          stimulusType: stimulus.type,
+          habitatId: stimulus.habitatId,
+        })
+
+        logger.debug('stimulus created from platform message', {
+          plugin: 'elysia-ai-body',
+          phase: 'normalize',
+          stimulusId: stimulus.id,
+          stimulusType: stimulus.type,
+          habitatId: stimulus.habitatId,
+        })
         
         // Step 3: 将刺激注入 runtime
         await this.runtime.receiveStimulus(stimulus)
       } catch (error) {
-        this.ctx.logger('elysia-ai-body').error('Error handling message:', error)
+        logger.error('error handling incoming platform message', error, {
+          plugin: 'elysia-ai-body',
+          phase: 'input',
+        })
       }
     })
 
@@ -55,6 +101,14 @@ export class KoishiBodyAdapter {
    * 移除消息监听
    */
   removeListeners(): void {
+    const logger = this.ctx.logger('elysia-ai-body')
+
+    logger.debug('removing koishi body adapter listeners', {
+      plugin: 'elysia-ai-body',
+      phase: 'dispose',
+      listenerCount: this.disposables.length,
+    })
+
     for (const dispose of this.disposables) {
       dispose()
     }

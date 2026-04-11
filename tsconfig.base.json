@@ -10,15 +10,6 @@
     "incremental": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@elysia-ai/core": ["packages/core/src"],
-      "koishi-plugin-elysia-ai-runtime": ["packages/runtime/src"],
-      "koishi-plugin-elysia-ai-body": ["packages/body/src"],
-      "@elysia-ai/behavior": ["packages/behavior/src"],
-      "@elysia-ai/brain": ["packages/brain/src"],
-      "@elysia-ai/model-gateway": ["packages/model-gateway/src"]
-    }
+    "resolveJsonModule": true
   }
 }

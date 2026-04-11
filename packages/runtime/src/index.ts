@@ -38,29 +38,75 @@ declare module 'koishi' {
 export async function apply(ctx: Context, config: Config) {
   const logger = ctx.logger('elysia-ai-runtime')
 
+  logger.info('runtime plugin apply started', {
+    plugin: 'elysia-ai-runtime',
+    phase: 'apply',
+    hasManifestPath: Boolean(config.manifestPath),
+  })
+
   // 创建默认 runtime 实例
-  const runtime = createDefaultRuntime()
+  const runtime = createDefaultRuntime({
+    info(message, meta) {
+      logger.info(message, meta)
+    },
+    debug(message, meta) {
+      logger.debug(message, meta)
+    },
+    error(message, error, meta) {
+      if (meta && error) {
+        logger.error(message, meta, error)
+        return
+      }
+      if (error) {
+        logger.error(message, error)
+        return
+      }
+      if (meta) {
+        logger.error(message, meta)
+        return
+      }
+      logger.error(message)
+    },
+  })
 
   // 将 runtime 挂载到 ctx 上，供其他插件使用
   ctx['elysia-ai-runtime'] = runtime
 
+  logger.debug('runtime instance attached to context', {
+    plugin: 'elysia-ai-runtime',
+    phase: 'apply',
+  })
+
   // 启动 runtime
   try {
     await runtime.start()
-    logger.info('Runtime started')
   } catch (error) {
-    logger.error('Failed to start runtime:', error)
+    logger.error('failed to start runtime', error)
     return
   }
 
   // 加载 manifest 配置（如果配置了 manifestPath）
   if (config.manifestPath) {
     try {
+      logger.info('manifest loading requested', {
+        plugin: 'elysia-ai-runtime',
+        phase: 'manifest',
+        manifestPath: config.manifestPath,
+      })
+
       const manifest = await loadManifestFromFile(config.manifestPath)
       await runtime.loadManifest(manifest)
-      logger.info(`Loaded ${manifest.lifeInstances.length} life instance(s) from manifest`)
+      logger.info('manifest loading completed', {
+        plugin: 'elysia-ai-runtime',
+        phase: 'manifest',
+        lifeInstanceCount: manifest.lifeInstances.length,
+      })
     } catch (error) {
-      logger.error('Failed to load manifest:', error)
+      logger.error('failed to load manifest', error, {
+        plugin: 'elysia-ai-runtime',
+        phase: 'manifest',
+        manifestPath: config.manifestPath,
+      })
     }
   }
 
@@ -68,9 +114,11 @@ export async function apply(ctx: Context, config: Config) {
   ctx.on('dispose', async () => {
     try {
       await runtime.stop()
-      logger.info('Runtime stopped')
     } catch (error) {
-      logger.error('Failed to stop runtime:', error)
+      logger.error('failed to stop runtime', error, {
+        plugin: 'elysia-ai-runtime',
+        phase: 'dispose',
+      })
     }
   })
 }
