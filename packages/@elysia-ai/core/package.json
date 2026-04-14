@@ -1,0 +1,37 @@
+{
+  "name": "@elysia-ai/koishi-plugin-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
+  },
+  "author": "PinkElysiaDev",
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "license": "AGPL-3.0-or-later"
+}

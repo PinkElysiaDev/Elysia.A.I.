@@ -1,0 +1,47 @@
+{
+  "name": "koishi-plugin-elysia-ai-body",
+  "description": "Elysia A.I. body plugin for Koishi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.cjs",
+  "module": "lib/index.mjs",
+  "typings": "lib/index.d.ts",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.cjs",
+      "import": "./lib/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
+    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
+    "build": "yarn build:types && yarn build:cjs && yarn build:esm"
+  },
+  "dependencies": {
+    "@elysia-ai/koishi-plugin-core": "workspace:*",
+    "koishi-plugin-elysia-ai-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "koishi": "^4.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1",
+    "koishi": "^4.18.0",
+    "typescript": "^5.0.0"
+  },
+  "koishi": {
+    "description": {
+      "zh": "Elysia A.I. 躯体插件，负责将平台消息转换为内部 Stimulus 并注入 runtime。",
+      "en": "Elysia A.I. body plugin converting platform messages into internal stimuli and injecting them into runtime."
+    }
+  },
+  "license": "AGPL-3.0-or-later"
+}

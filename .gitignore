@@ -16,3 +16,4 @@ tsconfig.tsbuildinfo
 *.ntvs*
 *.njsproj
 *.sln
+packages/*/.turbo/turbo-build.log

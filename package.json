@@ -2,9 +2,11 @@
   "name": "@root/elysia-ai",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "yarn@4.7.0",
+  "author": "PinkElysiaDev",
+  "license": "AGPL-3.0-or-later",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/@elysia-ai/*"
   ],
   "scripts": {
     "postinstall": "node scripts/patch-tsconfig.js",
@@ -15,16 +17,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/Elysia.A.I..git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
   },
-  "homepage": "https://github.com/PinkElysiaDev/Elysia.A.I.",
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
-    "url": "https://github.com/PinkElysiaDev/Elysia.A.I./issues"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
-  "author": "PinkElysiaDev",
   "devDependencies": {
     "turbo": "^2.0.0",
     "vitest": "^1.6.0"
-  },
-  "license": "AGPL-3.0-or-later"
+  }
 }
