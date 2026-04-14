@@ -21,12 +21,12 @@
   ],
   "scripts": {
     "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
-    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/core --external:koishi-plugin-elysia-ai-runtime",
-    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/core --external:koishi-plugin-elysia-ai-runtime",
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
+    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
     "build": "yarn build:types && yarn build:cjs && yarn build:esm"
   },
   "dependencies": {
-    "@elysia-ai/core": "workspace:*",
+    "@elysia-ai/koishi-plugin-core": "workspace:*",
     "koishi-plugin-elysia-ai-runtime": "workspace:*"
   },
   "peerDependencies": {

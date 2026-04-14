@@ -1,5 +1,5 @@
 import type { PlatformMessage } from '../types/index.js'
-import type { Stimulus } from '@elysia-ai/core'
+import type { Stimulus } from '@elysia-ai/koishi-plugin-core'
 
 /**
  * 将 PlatformMessage 转换为 Stimulus

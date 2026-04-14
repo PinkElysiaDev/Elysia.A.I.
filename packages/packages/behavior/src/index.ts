@@ -1,5 +1,5 @@
 import { Context, Schema } from 'koishi'
-import type { Stimulus, CoreEventMap, EventBus } from '@elysia-ai/core'
+import type { Stimulus, CoreEventMap, EventBus } from '@elysia-ai/koishi-plugin-core'
 import { resolveStimulusScope } from './scope.js'
 import { calculateStimulusSignal } from './signals.js'
 import { routeStimulus } from './router.js'

@@ -1,5 +1,5 @@
 
-import type { Habitat } from '@elysia-ai/core'
+import type { Habitat } from '@elysia-ai/koishi-plugin-core'
 
 export interface HabitatRegistry {
   register(habitat: Habitat): void
