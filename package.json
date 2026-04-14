@@ -5,7 +5,8 @@
   "author": "PinkElysiaDev",
   "license": "AGPL-3.0-or-later",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/packages/*"
   ],
   "scripts": {
     "postinstall": "node scripts/patch-tsconfig.js",
