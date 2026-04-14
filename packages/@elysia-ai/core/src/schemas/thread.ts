@@ -8,5 +8,5 @@ export const threadSchema = z.object({
   title: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })

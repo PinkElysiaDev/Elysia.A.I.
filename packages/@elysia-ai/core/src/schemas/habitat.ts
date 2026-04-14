@@ -15,5 +15,5 @@ export const HabitatSchema = z.object({
   guildId: z.string().optional(),
   channelId: z.string().optional(),
   userId: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })

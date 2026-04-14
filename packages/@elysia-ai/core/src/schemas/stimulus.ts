@@ -33,6 +33,6 @@ export const stimulusSchema = z.object({
   isReply: z.boolean().optional(),
   isSystemEvent: z.boolean().optional(),
 
-  payload: z.record(z.unknown()),
-  metadata: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
