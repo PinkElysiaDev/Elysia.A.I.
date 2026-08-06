@@ -47,6 +47,11 @@ export interface ElysiaPluginDescriptor<TConfig, TRuntime, TService> {
   /**
    * 构造插件运行时。在此完成额外依赖解析、附加门控（返回 undefined 即放弃注册）、
    * 以及 runtime 形状重塑。返回的 handle 至少需含 service 与 dispose。
+   *
+   * 注意：本工厂不负责声明 cordis `inject`。wrapper 模块若需让 cordis
+   * 等待基础服务（如 elysia.runtime / elysia.modelGateway / elysia.brain）就绪
+   * 再跑 apply，应在模块顶层另写 `export const inject = [...]`（cordis 从
+   * 模块命名空间读 `plugin['inject']`，而非 apply 函数的静态属性）。
    */
   build(
     context: ElysiaPluginBuildContext<TConfig, TRuntime>,

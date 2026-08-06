@@ -13,62 +13,41 @@ export * from '@elysia-ai/model-gateway'
 
 export const name = 'elysia-ai-model-gateway'
 
-const SlotSchema = Schema.object({
-  type: Schema.union([
-    Schema.const('openai' as const),
-    Schema.const('openai-compatible' as const),
-    Schema.const('gemini' as const),
-    Schema.const('claude' as const),
-  ]).required().description('Provider type.'),
-  apiKey: Schema.string().role('secret').required().description('API key.'),
-  endpoint: Schema.string().description('Provider endpoint.'),
-  model: Schema.string().required().description('Model name.'),
-  mode: Schema.union([
-    Schema.const('chat-completions' as const),
-    Schema.const('responses' as const),
-  ]).default('chat-completions').description('Provider request mode.'),
-  maxTokens: Schema.number().default(4096).description('Maximum output tokens.'),
-  temperature: Schema.number().default(0.7).description('Sampling temperature.'),
-  timeoutMs: Schema.number().description('Provider request timeout in milliseconds.'),
-}).description('Model provider slot.')
-
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply，
+// 根除“读早于写”的加载竞态（替代旧的 getRequiredElysiaService 降级路径）。
+export const inject = ['elysia.runtime']
 
 const ProviderSchema = Schema.object({
   type: Schema.union([
-    Schema.const('openai' as const),
-    Schema.const('openai-compatible' as const),
-    Schema.const('gemini' as const),
-    Schema.const('claude' as const),
-  ]).required().description('Provider type.'),
-  model: Schema.string().required().description('Default model name.'),
-  apiKey: Schema.string().role('secret').description('Inline API key. Prefer apiKeyEnv in production.'),
-  apiKeyEnv: Schema.string().description('Environment variable that contains the API key.'),
-  endpoint: Schema.string().description('Provider endpoint.'),
-  baseURL: Schema.string().description('Provider base URL alias.'),
-  mode: Schema.union([
     Schema.const('chat-completions' as const),
     Schema.const('responses' as const),
-  ]).default('chat-completions').description('Provider request mode.'),
-  maxTokens: Schema.number().default(4096).description('Maximum output tokens.'),
-  temperature: Schema.number().default(0.7).description('Sampling temperature.'),
-  timeoutMs: Schema.number().description('Provider request timeout in milliseconds.'),
-}).description('Production provider configuration.')
+    Schema.const('gemini' as const),
+    Schema.const('anthropic' as const),
+  ]).required().description('API 协议类型。'),
+  baseURL: Schema.string().required().description('API 基础域名（必填）。'),
+  endpoint: Schema.string().description('API 路径前缀（可选，各协议有默认值）。'),
+  apiKey: Schema.string().role('secret').required().description('API 密钥。'),
+  maxTokens: Schema.number().default(4096).description('最大输出 token 数。'),
+  temperature: Schema.number().default(0.7).description('采样温度。'),
+  timeoutMs: Schema.number().description('Provider 请求超时时间（毫秒）。'),
+}).description('API 服务配置。')
 
 const ProviderSlotSchema = Schema.object({
-  provider: Schema.string().required().description('Provider id from providers.'),
-  model: Schema.string().description('Per-slot model override.'),
-  maxTokens: Schema.number().description('Per-slot maximum output tokens.'),
-  temperature: Schema.number().description('Per-slot sampling temperature.'),
-  timeoutMs: Schema.number().description('Per-slot request timeout in milliseconds.'),
-}).description('Production model slot referencing a provider.')
+  provider: Schema.string().required().description('引用的 provider id（来自上方 providers 配置）。'),
+  model: Schema.string().required().description('模型名称（必填）。'),
+  maxTokens: Schema.number().description('槽位级最大输出 token 数覆盖。'),
+  temperature: Schema.number().description('槽位级采样温度覆盖。'),
+  timeoutMs: Schema.number().description('槽位级请求超时覆盖。'),
+}).description('模型槽位。')
 
 export const Config: Schema<ModelGatewayConfig> = Schema.intersect([
   Schema.object({
-    providers: Schema.dict(ProviderSchema).description('生产环境 provider，按 provider id 索引。'),
-    providerSlots: Schema.dict(ProviderSlotSchema).description('引用 provider id 的生产环境槽位。'),
-    slots: Schema.dict(SlotSchema).description('命名 provider 槽位（兼容旧式直配）。'),
-    defaultSlot: Schema.string().description('默认 provider 槽位键。'),
-  }).description('基础设置'),
+    providers: Schema.dict(ProviderSchema).description('API 服务注册表，按 provider id 索引。每个 provider 定义可用的 API 服务（协议类型、域名、密钥等）。'),
+  }).description('Provider 配置（API 服务）'),
+  Schema.object({
+    providerSlots: Schema.dict(ProviderSlotSchema).description('模型槽位，引用 provider id 并指定模型。按用途分配模型（如主力模型、快速模型、推理模型等）。'),
+    defaultSlot: Schema.string().description('默认模型槽位名。当请求未指定槽位时使用。'),
+  }).description('模型槽位（按用途分配模型）'),
   Schema.object({
     retry: Schema.object({
       maxRetries: Schema.number().default(3).description('每个 provider 的最大重试次数。'),
@@ -89,39 +68,34 @@ export const Config: Schema<ModelGatewayConfig> = Schema.intersect([
 ])
 
 
-const PROVIDER_TYPES = new Set(['openai', 'openai-compatible', 'gemini', 'claude'])
+const PROVIDER_TYPES = new Set(['chat-completions', 'responses', 'gemini', 'anthropic'])
 
-function assertProviderType(providerId: string, type: unknown): asserts type is 'openai' | 'openai-compatible' | 'gemini' | 'claude' {
+function assertProviderType(providerId: string, type: unknown): asserts type is 'chat-completions' | 'responses' | 'gemini' | 'anthropic' {
   if (typeof type !== 'string' || !PROVIDER_TYPES.has(type)) {
     throw new Error(`elysia-ai-model-gateway: provider "${providerId}" has unknown type "${String(type)}"`)
   }
 }
 
 function collectConfiguredSlots(config: ModelGatewayConfig): Set<string> {
-  return new Set([
-    ...Object.keys(config.slots ?? {}),
-    ...Object.keys(config.providerSlots ?? {}),
-  ])
+  return new Set(Object.keys(config.providerSlots ?? {}))
 }
 
 export function validateModelGatewayConfig(config: ModelGatewayConfig): void {
   for (const [providerId, provider] of Object.entries(config.providers ?? {})) {
     assertProviderType(providerId, provider.type)
-    if (!provider.apiKey && !provider.apiKeyEnv) {
-      throw new Error(`elysia-ai-model-gateway: provider "${providerId}" requires apiKey or apiKeyEnv`)
+
+    if (!provider.apiKey) {
+      throw new Error(`elysia-ai-model-gateway: provider "${providerId}" requires apiKey`)
+    }
+
+    if (!provider.baseURL) {
+      throw new Error(`elysia-ai-model-gateway: provider "${providerId}" requires baseURL`)
     }
   }
 
   for (const [slotName, slot] of Object.entries(config.providerSlots ?? {})) {
     if (!config.providers?.[slot.provider]) {
       throw new Error(`elysia-ai-model-gateway: slot "${slotName}" references unknown provider "${slot.provider}"`)
-    }
-  }
-
-  for (const [slotName, slot] of Object.entries(config.slots ?? {})) {
-    assertProviderType(`slot:${slotName}`, slot.type)
-    if (!slot.apiKey) {
-      throw new Error(`elysia-ai-model-gateway: legacy slot "${slotName}" requires apiKey`)
     }
   }
 
@@ -145,7 +119,7 @@ export function preflightModelGatewayConfig(config: ModelGatewayConfig): Preflig
     return createPreflightResult([], {
       plugin: 'elysia-ai-model-gateway',
       providerCount: Object.keys(config.providers ?? {}).length,
-      slotCount: Object.keys(config.providerSlots ?? {}).length + Object.keys(config.slots ?? {}).length,
+      slotCount: Object.keys(config.providerSlots ?? {}).length,
       fallbackEnabled: config.fallback?.enabled === true,
     })
   } catch (error) {
@@ -182,16 +156,16 @@ function registerDebugCommands(ctx: Context, service: DefaultModelGatewayService
     .action(() => formatGatewayRegistry(service))
 
   command.call(ctx, 'elysia.gateway.health [providerId:string]', 'Elysia Model Gateway provider 健康状态', { authority: 4 })
-    .action((_argv: unknown, providerId?: string) => formatGatewayHealth(service, providerId))
+    .action((_argv: unknown, providerId?: unknown) => formatGatewayHealth(service, providerId as string | undefined))
 
   command.call(ctx, 'elysia.gateway.failures [limit:number]', 'Elysia Model Gateway 最近失败记录', { authority: 4 })
-    .action((_argv: unknown, limit?: number) => {
+    .action((_argv: unknown, limit?: unknown) => {
       const observatory = getOptionalElysiaService<{ service?: GatewayFailureEventSource } & GatewayFailureEventSource>(ctx, {
         formalName: 'elysia.observatory',
         legacyName: 'elysia-ai-observatory',
         plugin: 'elysia-ai-model-gateway',
       })
-      return formatGatewayFailures(observatory?.service ?? observatory, limit ?? 10)
+      return formatGatewayFailures(observatory?.service ?? observatory, (limit as number | undefined) ?? 10)
     })
 }
 

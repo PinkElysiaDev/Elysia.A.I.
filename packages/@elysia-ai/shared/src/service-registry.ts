@@ -23,50 +23,63 @@ export interface ElysiaServiceLookupOptions {
   description?: string
 }
 
-function getContextValue<T>(ctx: Context, name: string): T | undefined {
-  return (ctx as unknown as Record<string, T | undefined>)[name]
-}
-
-function setContextValue<T>(ctx: Context, name: string, value: T | undefined): void {
-  ;(ctx as unknown as Record<string, T | undefined>)[name] = value
-}
-
+/**
+ * 通过 cordis 原生服务机制注册 Elysia 服务。
+ *
+ * 采用 `ctx.set()` 注册正式名（进 cordis 服务表，支持 `inject` 等待），
+ * 并通过 `ctx.reflect.alias()` 把 legacy 别名指向正式名。
+ *
+ * 与旧实现（直接 `ctx[name] = service` 赋值）的区别：
+ * - 进 cordis 服务表 → 消费插件可用 `inject: ['elysia.xxx']` 声明依赖，
+ *   cordis 会在服务就绪后再跑消费插件的 apply，根除"读早于写"的竞态。
+ * - 用 `ctx.get()` 读取不会触发 "property is not registered" 警告。
+ *
+ * 销毁由 cordis 的 effect 机制托管：插件作用域 dispose 时自动把服务置空，
+ * 无需调用方手动 dispose。返回的函数仅作向后兼容（调用方若持有可忽略）。
+ */
 export function registerElysiaService<T>(
   ctx: Context,
   options: RegisterElysiaServiceOptions<T>,
 ): () => void {
   const { formalName, legacyName, service, logger, plugin } = options
-  const previousFormal = getContextValue<T>(ctx, formalName)
-  const previousLegacy = legacyName ? getContextValue<T>(ctx, legacyName) : undefined
 
-  if (previousFormal && previousFormal !== service) {
-    logger?.debug?.('elysia service formal alias overwritten', { plugin, serviceName: formalName })
-  }
-  if (legacyName && previousLegacy && previousLegacy !== service) {
-    logger?.debug?.('elysia service legacy alias overwritten', { plugin, serviceName: legacyName })
-  }
-
-  setContextValue(ctx, formalName, service)
-  if (legacyName) setContextValue(ctx, legacyName, service)
-
-  const dispose = () => {
-    if (getContextValue(ctx, formalName) === service) setContextValue(ctx, formalName, undefined)
-    if (legacyName && getContextValue(ctx, legacyName) === service) setContextValue(ctx, legacyName, undefined)
+  // 先登记 legacy 别名，使其解析到正式名（alias 须在 set 之前调用，且仅在该名未注册时生效）
+  if (legacyName) {
+    try {
+      ctx.reflect.alias(formalName, [legacyName])
+    } catch {
+      // 别名已存在或冲突，忽略——正式名仍可正常访问
+    }
   }
 
-  if (typeof (ctx as unknown as { on?: unknown }).on === 'function') {
-    ctx.on('dispose', dispose)
+  try {
+    ctx.set(formalName, service)
+  } catch {
+    // 非空覆盖（如未正常 dispose 即重注册）：记录后跳过，避免抛错中断 apply
+    logger?.debug?.('elysia service already registered, skipping re-registration', {
+      plugin,
+      serviceName: formalName,
+    })
   }
-  return dispose
+
+  // 向后兼容的 dispose 句柄；cordis 已通过 effect 托管销毁，这里通常无需手动调用。
+  return () => {
+    try {
+      ctx.set(formalName, undefined)
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getOptionalElysiaService<T>(
   ctx: Context,
   options: ElysiaServiceLookupOptions,
 ): T | undefined {
-  const formal = getContextValue<T>(ctx, options.formalName)
+  // 用 cordis 官方访问器 ctx.get()，对未注册服务返回 undefined 而不触发警告
+  const formal = ctx.get(options.formalName) as T | undefined
   if (formal) return formal
-  if (options.legacyName) return getContextValue<T>(ctx, options.legacyName)
+  if (options.legacyName) return ctx.get(options.legacyName) as T | undefined
   return undefined
 }
 
@@ -76,8 +89,11 @@ export function getOptionalElysiaService<T>(
  * 命名中的 “Required” 表达的是**调用方语义**（这个依赖缺失就无法继续），
  * 而**不是返回值保证**：服务缺失时本函数不会抛错，而是记录一条 error 级日志
  * 并返回 `undefined`，由调用方决定如何降级（通常是 `if (!svc) return`）。
- * 这一“记录缺失并降级”的契约与 Phase 42 的 optional dependency degradation 一致，
- * 不应改为抛错——多个插件依赖该行为做优雅降级。
+ *
+ * 注意：对于“runtime 之类的基础依赖”，应优先在插件顶层声明
+ * `export const inject = ['elysia.runtime']`，让 cordis 自动等待服务就绪，
+ * 而不是依赖本函数的降级路径。本函数的降级契约主要用于可选依赖
+ * （与 Phase 42 的 optional dependency degradation 一致）。
  *
  * @returns 命中的服务实例；缺失时为 `undefined`（已记录 error 日志）。
  */

@@ -3,11 +3,11 @@ import type { ProviderDescriptor, ModelUsage } from '@elysia-ai/core'
 
 export interface ProviderConfig {
   id: string
-  type: 'openai' | 'openai-compatible' | 'gemini' | 'claude'
+  type: 'chat-completions' | 'responses' | 'gemini' | 'anthropic'
   apiKey: string
-  endpoint?: string
+  baseURL: string      // API 基础域名（必填）
+  endpoint?: string    // API 路径前缀（可选，各协议有默认值）
   model: string
-  mode?: 'chat-completions' | 'responses'
   maxTokens?: number
   temperature?: number
   timeoutMs?: number

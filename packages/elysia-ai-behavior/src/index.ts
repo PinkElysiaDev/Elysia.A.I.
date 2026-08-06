@@ -7,6 +7,9 @@ export * from '@elysia-ai/behavior'
 
 export const name = 'elysia-ai-behavior'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<BehaviorConfig> = Schema.intersect([
   Schema.object({
     enableReply: Schema.boolean().default(true)

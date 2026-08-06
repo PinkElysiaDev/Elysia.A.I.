@@ -1,0 +1,51 @@
+commands:
+  elysia.gateway.slots:
+    description: 查看 Elysia 模型网关槽位配置
+  elysia.gateway.registry:
+    description: 查看 Elysia 模型网关 provider 注册表
+  elysia.gateway.health:
+    description: 查看 Elysia 模型网关 provider 健康状态
+    options:
+      providerId: Provider ID（留空显示所有）
+  elysia.gateway.failures:
+    description: 查看 Elysia 模型网关最近失败记录
+    options:
+      limit: 显示条数限制
+
+$description:
+  providers: API 服务注册表，按 provider id 索引。每个 provider 定义可用的 API 服务（协议类型、域名、密钥等）。
+  providerSlots: 模型槽位，引用 provider id 并指定模型。按用途分配模型（如主力模型、快速模型、推理模型等）。
+  defaultSlot: 默认模型槽位名。当请求未指定槽位时使用。
+  retry: 重试策略配置。
+  retry.maxRetries: 每个 provider 的最大重试次数。
+  retry.baseDelayMs: 初始重试延迟（毫秒）。
+  retry.maxDelayMs: 最大重试延迟（毫秒）。
+  circuitBreaker: provider 熔断策略配置。
+  circuitBreaker.enabled: 启用 provider 熔断器。
+  circuitBreaker.failureThreshold: 触发熔断的连续失败次数。
+  circuitBreaker.cooldownMs: 熔断冷却时长（毫秒）。
+  fallback: 回退槽位策略配置。
+  fallback.enabled: 启用 provider 槽位回退。
+  fallback.slots: 按源槽位键配置的回退槽位链。
+  fallback.fallbackOnNonRetryable: 遇到不可重试错误时也回退。
+
+$name:
+  Provider 配置（API 服务）: Provider 配置（API 服务）
+  模型槽位（按用途分配模型）: 模型槽位（按用途分配模型）
+  高级：网关韧性（重试/熔断/回退）: 高级：网关韧性（重试/熔断/回退）
+
+$provider:
+  type: API 协议类型
+  baseURL: API 基础域名（必填，如 https://api.openai.com）
+  endpoint: API 路径前缀（可选，各协议有默认值，如 /v1）
+  apiKey: API 密钥
+  maxTokens: 最大输出 token 数
+  temperature: 采样温度
+  timeoutMs: Provider 请求超时时间（毫秒）
+
+$providerSlot:
+  provider: 引用的 provider id（来自上方 providers 配置）
+  model: 模型名称（必填）
+  maxTokens: 槽位级最大输出 token 数覆盖
+  temperature: 槽位级采样温度覆盖
+  timeoutMs: 槽位级请求超时覆盖

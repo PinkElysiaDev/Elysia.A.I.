@@ -1,26 +1,26 @@
 export type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
 export { ProviderError } from './types.js'
-export { createOpenAIProvider } from './openai.js'
-export { createOpenAICompatibleProvider } from './openai-compatible.js'
+export { createChatCompletionsProvider } from './chat-completions.js'
+export { createResponsesProvider } from './responses.js'
 export { createGeminiProvider } from './gemini.js'
-export { createClaudeProvider } from './claude.js'
+export { createAnthropicProvider } from './anthropic.js'
 
 import type { Provider, ProviderConfig } from './types.js'
-import { createOpenAIProvider } from './openai.js'
-import { createOpenAICompatibleProvider } from './openai-compatible.js'
+import { createChatCompletionsProvider } from './chat-completions.js'
+import { createResponsesProvider } from './responses.js'
 import { createGeminiProvider } from './gemini.js'
-import { createClaudeProvider } from './claude.js'
+import { createAnthropicProvider } from './anthropic.js'
 
 export function createProvider(config: ProviderConfig): Provider {
   switch (config.type) {
-    case 'openai':
-      return createOpenAIProvider(config)
-    case 'openai-compatible':
-      return createOpenAICompatibleProvider(config)
+    case 'chat-completions':
+      return createChatCompletionsProvider(config)
+    case 'responses':
+      return createResponsesProvider(config)
     case 'gemini':
       return createGeminiProvider(config)
-    case 'claude':
-      return createClaudeProvider(config)
+    case 'anthropic':
+      return createAnthropicProvider(config)
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`)
   }

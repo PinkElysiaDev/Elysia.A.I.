@@ -1,0 +1,26 @@
+$description:
+  restoreOnStartup: 恢复上次持久化的稳态状态（runtime 重启后重新加载）。
+  initialEnergy: 初始能量（0~1）。
+  initialMood: 初始心情（0~1）。
+  initialSociability: 初始社交倾向（0~1）。
+  initialCuriosity: 初始好奇心（0~1）。
+  energyDecayPerTick: 每次状态更新时能量的衰减幅度。
+  moodDecayPerTick: 每次状态更新时心情的衰减幅度。
+  sociabilityDecayPerTick: 每次状态更新时社交倾向的衰减幅度。
+  curiosityDecayPerTick: 每次状态更新时好奇心的衰减幅度。
+  energyBaseline: 能量静息基线，留空则取初始能量。指标朝基线松弛而非衰减到 0。
+  moodBaseline: 心情静息基线，留空则取初始心情。
+  sociabilityBaseline: 社交倾向静息基线，留空则取初始社交倾向。
+  curiosityBaseline: 好奇心静息基线，留空则取初始好奇心。
+  recoveryFactor: 低于基线时的恢复速率相对衰减速率的倍率（空闲恢复通常更慢）。
+  maxValue: 各状态指标的上限。
+  minValue: 各状态指标的下限。
+  responseThresholdMin: 回应阈值下限。
+  responseThresholdMax: 回应阈值上限。
+
+$name:
+  基础设置: 基础设置
+  高级：初始状态: 高级：初始状态
+  高级：衰减速率: 高级：衰减速率
+  高级：恢复动力学: 高级：恢复动力学
+  高级：取值边界: 高级：取值边界

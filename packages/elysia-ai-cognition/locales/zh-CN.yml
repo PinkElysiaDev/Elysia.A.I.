@@ -1,0 +1,17 @@
+$description:
+  behaviorThreshold: 回应意愿阈值：显著性高于此值才会进入行为决策。越低越话痨，越高越沉默。
+  aiEnhanced: 启用 AI 增强认知推理（需在 model-gateway 配置模型槽位）。
+  recentConversationLimit: 参与显著性判断的最近对话条数。
+  salienceDirectMentionBonus: 被 @ 点名时提升的回应意愿。
+  salienceDirectMessageBonus: 私聊场景提升的回应意愿。
+  salienceReplyBonus: 消息是对本体的回复时提升的回应意愿。
+  salienceQuestionBonus: 消息是疑问句时提升的回应意愿。
+  salienceLengthFactor: 消息长度对回应意愿的加权系数。
+  aiFallbackToRuleBased: AI 推理失败时回退到规则判断。
+  aiMinSalience: 触发 AI 增强的最低显著性门槛。
+  aiModelSlot: AI 认知推理使用的模型槽位名（在 model-gateway 中配置），留空则使用默认槽位。
+
+$name:
+  基础设置: 基础设置
+  高级：显著性调参: 高级：显著性调参
+  高级：AI 增强: 高级：AI 增强

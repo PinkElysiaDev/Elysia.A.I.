@@ -6,7 +6,7 @@ import type {
   ModelGatewayService,
   RoutingResult,
 } from '@elysia-ai/core'
-import type { CircuitBreakerConfig, FallbackConfig, ModelGatewayConfig, ModelProviderConfig, ModelProviderSlotConfig, ModelSlotConfig, RetryConfig } from './config/index.js'
+import type { CircuitBreakerConfig, FallbackConfig, ModelGatewayConfig, ModelProviderConfig, ModelProviderSlotConfig, RetryConfig, SlotDeclaration } from './config/index.js'
 import type { ProviderConfig, ProviderResponse } from './providers/types.js'
 import { ProviderError } from './providers/types.js'
 import {
@@ -223,42 +223,23 @@ export function formatGatewayFailures(observatory: GatewayFailureEventSource | u
 
 
 function resolveProviderApiKey(providerId: string, config: ModelProviderConfig): string {
-  if (config.apiKey) return config.apiKey
-  if (config.apiKeyEnv) {
-    const processEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    const value = processEnv?.[config.apiKeyEnv]
-    if (value) return value
-    throw new Error(`model-gateway provider "${providerId}" requires env ${config.apiKeyEnv}`)
+  if (!config.apiKey) {
+    throw new Error(`model-gateway provider "${providerId}" requires apiKey`)
   }
-  throw new Error(`model-gateway provider "${providerId}" requires apiKey or apiKeyEnv`)
+  return config.apiKey
 }
 
-function toProviderConfig(providerId: string, config: ModelProviderConfig): ProviderConfig {
+function toProviderConfig(providerId: string, config: ModelProviderConfig): Omit<ProviderConfig, 'model'> {
   return {
     id: providerId,
     type: config.type,
     apiKey: resolveProviderApiKey(providerId, config),
-    endpoint: config.endpoint ?? config.baseURL,
-    model: config.model,
-    mode: config.mode,
+    baseURL: config.baseURL,
+    endpoint: config.endpoint,
     maxTokens: config.maxTokens,
     temperature: config.temperature,
     timeoutMs: config.timeoutMs,
     metadata: config.metadata,
-  }
-}
-
-function toLegacyProviderConfig(slotName: string, config: ModelSlotConfig): ProviderConfig {
-  return {
-    id: `slot:${slotName}`,
-    type: config.type,
-    apiKey: config.apiKey,
-    endpoint: config.endpoint,
-    model: config.model,
-    mode: config.mode,
-    maxTokens: config.maxTokens,
-    temperature: config.temperature,
-    timeoutMs: config.timeoutMs,
   }
 }
 
@@ -272,7 +253,7 @@ function registerConfiguredProviderSlot(
   registry.register({
     ...toProviderConfig(slotConfig.provider, providerConfig),
     id: providerId,
-    model: slotConfig.model ?? providerConfig.model,
+    model: slotConfig.model,
     maxTokens: slotConfig.maxTokens ?? providerConfig.maxTokens,
     temperature: slotConfig.temperature ?? providerConfig.temperature,
     timeoutMs: slotConfig.timeoutMs ?? providerConfig.timeoutMs,
@@ -281,24 +262,13 @@ function registerConfiguredProviderSlot(
 }
 
 function registerConfiguredProviders(registry: ProviderRegistry, config: Config): void {
-  if (config.providers) {
-    for (const [providerId, providerConfig] of Object.entries(config.providers)) {
-      registry.register(toProviderConfig(providerId, providerConfig))
-    }
-  }
+  // Providers 不再直接注册，仅作为配置源
 
   if (config.providerSlots) {
     for (const [slotName, slotConfig] of Object.entries(config.providerSlots)) {
       const providerConfig = config.providers?.[slotConfig.provider]
       if (!providerConfig) throw new Error(`model-gateway slot "${slotName}" references unknown provider "${slotConfig.provider}"`)
       registerConfiguredProviderSlot(registry, slotName, slotConfig, providerConfig)
-    }
-  }
-
-  if (config.slots) {
-    for (const [slotName, slotConfig] of Object.entries(config.slots)) {
-      registry.register(toLegacyProviderConfig(slotName, slotConfig))
-      registry.registerSlot(slotName, `slot:${slotName}`)
     }
   }
 }
@@ -309,6 +279,7 @@ export class DefaultModelGatewayService implements ModelGatewayService {
   private readonly healthTracker: ProviderHealthTracker
   private readonly retryConfig: Required<RetryConfig>
   private readonly fallbackConfig: Required<FallbackConfig>
+  private readonly declaredSlots = new Map<string, SlotDeclaration>()
 
   constructor(
     config: Config,
@@ -635,6 +606,21 @@ export class DefaultModelGatewayService implements ModelGatewayService {
   getHealthSnapshots(): ProviderHealthSnapshot[] {
     return this.healthTracker.getAllSnapshots()
   }
+
+  declareSlot(declaration: SlotDeclaration): void {
+    if (this.declaredSlots.has(declaration.slotName)) {
+      console.warn(`[model-gateway] Slot "${declaration.slotName}" already declared, overwriting`)
+    }
+    this.declaredSlots.set(declaration.slotName, declaration)
+  }
+
+  getDeclaredSlots(): SlotDeclaration[] {
+    return Array.from(this.declaredSlots.values())
+  }
+
+  getDeclaredSlot(slotName: string): SlotDeclaration | undefined {
+    return this.declaredSlots.get(slotName)
+  }
 }
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -660,7 +646,7 @@ export function createModelGatewayPluginRuntime(options: ModelGatewayPluginRunti
   logger.info('model-gateway plugin apply started', {
     plugin: 'elysia-ai-model-gateway',
     phase: 'apply',
-    slotCount: (config.slots ? Object.keys(config.slots).length : 0) + (config.providerSlots ? Object.keys(config.providerSlots).length : 0),
+    slotCount: config.providerSlots ? Object.keys(config.providerSlots).length : 0,
     providerCount: config.providers ? Object.keys(config.providers).length : 0,
   })
 
@@ -686,6 +672,6 @@ export { ProviderHealthTracker } from './health/index.js'
 export type { GatewayDiagnostics, GatewayAttemptDiagnostics } from './diagnostics/index.js'
 export type { ProviderHealthSnapshot, ProviderHealthStatus } from './health/index.js'
 export type { ProviderConfig } from './providers/types.js'
-export type { ModelProviderConfig, ModelProviderSlotConfig, ModelSlotConfig } from './config/index.js'
+export type { ModelProviderConfig, ModelProviderSlotConfig } from './config/index.js'
 export { ProviderError } from './providers/types.js'
 export type { Provider, ProviderRequest, ProviderResponse } from './providers/types.js'

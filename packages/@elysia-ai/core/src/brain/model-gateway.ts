@@ -1,10 +1,10 @@
 import type { DialogueMessage } from '../types/dialogue.js'
 
 export type ModelProviderType =
-  | 'openai'
+  | 'chat-completions'
+  | 'responses'
   | 'gemini'
-  | 'claude'
-  | 'openai-compatible'
+  | 'anthropic'
   | 'custom'
 
 export interface ProviderDescriptor {

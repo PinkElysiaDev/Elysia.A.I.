@@ -7,6 +7,10 @@ export * from '@elysia-ai/dialogue'
 
 export const name = 'elysia-ai-dialogue'
 
+// 声明对 runtime + brain 的必需依赖：cordis 会在两者就绪后再跑本插件 apply。
+// memory/bond 是可选依赖，不放这里，由 build() 内 getOptionalElysiaService 走降级。
+export const inject = ['elysia.runtime', 'elysia.brain']
+
 export const Config: Schema<DialogueConfig> = Schema.object({
   enabled: Schema.boolean().default(true).description('启用对话编排能力。'),
   memoryLimit: Schema.number().default(10).description('用于上下文的最大对话历史条数。'),

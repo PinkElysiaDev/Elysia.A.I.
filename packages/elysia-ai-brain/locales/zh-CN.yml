@@ -1,0 +1,15 @@
+$description:
+  systemPrompt: 兜底系统提示词：当生命体没有人格提示时使用。
+  defaultModelSlot: 大脑默认使用的 model-gateway 模型槽位。
+  contextWindow: 大脑请求中包含的最大对话历史条数。
+  contextBudget: 上下文预算策略配置。
+  contextBudget.maxMemoryChars: 记忆上下文的最大字符数。
+  contextBudget.maxBondChars: 羁绊上下文的最大字符数。
+  contextBudget.maxPersonaChars: 人格上下文的最大字符数。
+  contextBudget.maxSystemPromptChars: 组合后系统提示词的最大字符数。
+  contextBudget.maxEstimatedTokens: 提示词预估 token 上限（留空不限制）。
+  contextBudget.tokenEstimateRatio: 字符到 token 的预估比率（用于计算 token 数量）。
+
+$name:
+  基础设置: 基础设置
+  高级：上下文预算: 高级：上下文预算

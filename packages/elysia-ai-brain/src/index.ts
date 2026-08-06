@@ -7,6 +7,10 @@ export * from '@elysia-ai/brain'
 
 export const name = 'elysia-ai-brain'
 
+// 声明对 runtime + modelGateway 的必需依赖：cordis 会在两者就绪后再跑本插件 apply，
+// 根除“读早于写”的加载竞态。
+export const inject = ['elysia.runtime', 'elysia.modelGateway']
+
 export const Config: Schema<BrainConfig> = Schema.intersect([
   Schema.object({
     systemPrompt: Schema.string().description('兜底系统提示词：当生命体没有人格提示时使用。'),

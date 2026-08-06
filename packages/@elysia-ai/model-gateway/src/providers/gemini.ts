@@ -28,10 +28,17 @@ function extractSystemInstruction(messages: DialogueMessage[]): string | undefin
   return systemMessages.map((m) => m.content).join('\n')
 }
 
+const DEFAULT_ENDPOINT = '/v1beta'
+
 export function createGeminiProvider(config: ProviderConfig): Provider {
-  const baseUrl = (
-    config.endpoint ?? 'https://generativelanguage.googleapis.com/v1beta'
-  ).replace(/\/+$/, '')
+  if (!config.baseURL) {
+    throw new Error(`gemini provider "${config.id}" requires baseURL`)
+  }
+
+  const baseURL = config.baseURL.replace(/\/+$/, '')
+  const endpoint = config.endpoint ?? DEFAULT_ENDPOINT
+  const fullBaseUrl = `${baseURL}${endpoint}`
+
   const maxTokens = config.maxTokens ?? 4096
   const temperature = config.temperature ?? 0.7
   const timeoutMs = config.timeoutMs
@@ -42,7 +49,7 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
       id: config.id,
       type: 'gemini',
       model: config.model,
-      endpoint: baseUrl,
+      endpoint: fullBaseUrl,
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
@@ -50,7 +57,7 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
       const temp = request.temperature ?? temperature
       const timeout = request.timeoutMs ?? timeoutMs
 
-      const url = `${baseUrl}/models/${model}:generateContent?key=${config.apiKey}`
+      const url = `${fullBaseUrl}/models/${model}:generateContent?key=${config.apiKey}`
 
       const systemInstruction = extractSystemInstruction(request.messages)
       const contents = toGeminiContents(request.messages)
@@ -104,7 +111,7 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
           id: config.id,
           type: 'gemini',
           model,
-          endpoint: baseUrl,
+          endpoint: fullBaseUrl,
         },
         usage: {
           inputTokens: json.usageMetadata?.promptTokenCount,

@@ -16,25 +16,23 @@ export interface FallbackConfig {
   fallbackOnNonRetryable?: boolean
 }
 
-export interface ModelSlotConfig {
-  type: 'openai' | 'openai-compatible' | 'gemini' | 'claude'
-  apiKey: string
-  endpoint?: string
-  model: string
-  mode?: 'chat-completions' | 'responses'
-  maxTokens?: number
-  temperature?: number
-  timeoutMs?: number
+export interface SlotDeclaration {
+  slotName: string
+  description: string
+  suggestedModels?: string[]
+  required: boolean
+  defaultConfig?: {
+    maxTokens?: number
+    temperature?: number
+  }
+  plugin?: string  // 声明该 slot 的插件名称
 }
 
 export interface ModelProviderConfig {
-  type: 'openai' | 'openai-compatible' | 'gemini' | 'claude'
-  model: string
-  apiKey?: string
-  apiKeyEnv?: string
-  endpoint?: string
-  baseURL?: string
-  mode?: 'chat-completions' | 'responses'
+  type: 'chat-completions' | 'responses' | 'gemini' | 'anthropic'
+  apiKey: string
+  baseURL: string      // API 基础域名（必填）
+  endpoint?: string    // API 路径前缀（可选，各协议有默认值）
   maxTokens?: number
   temperature?: number
   timeoutMs?: number
@@ -50,12 +48,10 @@ export interface ModelProviderSlotConfig {
 }
 
 export interface ModelGatewayConfig {
-  /** Production provider registry keyed by provider id. */
+  /** Provider 注册表，按 provider id 索引。定义可用的 API 服务。 */
   providers?: Record<string, ModelProviderConfig>
-  /** Production slots reference provider ids and optional per-slot overrides. */
+  /** 模型槽位，引用 provider id 并指定模型。按用途分配模型。 */
   providerSlots?: Record<string, ModelProviderSlotConfig>
-  /** Legacy direct slot configuration retained for compatibility. */
-  slots?: Record<string, ModelSlotConfig>
   /** 默认槽位名 */
   defaultSlot?: string
   /** 容错重试配置 */

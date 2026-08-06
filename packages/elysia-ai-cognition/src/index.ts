@@ -7,6 +7,10 @@ export * from '@elysia-ai/cognition'
 
 export const name = 'elysia-ai-cognition'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+// brain 为可选增强（AI 认知推理），由 build() 内 getOptionalElysiaService 走降级。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<CognitionConfig> = Schema.intersect([
   Schema.object({
     behaviorThreshold: Schema.number().default(0.35)

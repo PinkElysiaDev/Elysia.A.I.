@@ -11,6 +11,9 @@ import {
 
 export const name = 'elysia-ai-body'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export interface Config {}
 
 export const Config: Schema<Config> = Schema.object({})

@@ -7,6 +7,10 @@ export * from '@elysia-ai/perception'
 
 export const name = 'elysia-ai-perception'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+// brain 为可选增强，由 build() 内 getOptionalElysiaService 走降级。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<PerceptionConfig> = Schema.intersect([
   Schema.object({
     enabledIntentClassify: Schema.boolean().default(true)

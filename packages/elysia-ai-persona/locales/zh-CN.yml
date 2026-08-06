@@ -1,0 +1,5 @@
+$description:
+  defaultName: 默认人格显示名称。
+  defaultSystemPrompt: 默认人格的系统提示词。
+  defaultTone: 默认人格语气风格。
+  registerDefaultPersona: 当生命体没有人格扩展时，是否注册一个默认人格。

@@ -7,6 +7,9 @@ export * from '@elysia-ai/persona'
 
 export const name = 'elysia-ai-persona'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<PersonaConfig> = Schema.object({
   defaultName: Schema.string().default('Elysia').description('默认人格显示名称。'),
   defaultSystemPrompt: Schema.string().default('You are Elysia, a gentle virtual life. Reply warmly.')

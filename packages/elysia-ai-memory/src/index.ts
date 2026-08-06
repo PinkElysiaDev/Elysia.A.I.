@@ -96,6 +96,9 @@ export function preflightMemoryConfig(config: MemoryPluginConfig) {
 
 export const name = 'elysia-ai-memory'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<MemoryConfig> = Schema.intersect([
   Schema.object({
     enabled: Schema.boolean().default(true).description('启用记忆能力。'),

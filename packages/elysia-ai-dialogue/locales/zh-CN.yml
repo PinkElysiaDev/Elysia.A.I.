@@ -1,0 +1,3 @@
+$description:
+  enabled: 启用对话编排能力。
+  memoryLimit: 用于上下文的最大对话历史条数。

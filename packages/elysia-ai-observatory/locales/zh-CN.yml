@@ -1,0 +1,13 @@
+commands:
+  elysia.status:
+    description: 查看 Elysia A.I. 运行状态
+  elysia.gateway.status:
+    description: 查看 Elysia A.I. 模型网关状态
+  elysia.repository.status:
+    description: 查看 Elysia A.I. 仓储状态
+  elysia.preflight:
+    description: 运行 Elysia A.I. 配置预检
+
+$description:
+  enabled: 启用观测台（采集主链事件与诊断）。
+  maxRecords: 内存中保留的最大事件记录条数。

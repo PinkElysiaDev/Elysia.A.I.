@@ -7,6 +7,9 @@ export * from '@elysia-ai/homeostasis'
 
 export const name = 'elysia-ai-homeostasis'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<HomeostasisConfig> = Schema.intersect([
   Schema.object({
     restoreOnStartup: Schema.boolean().default(true)

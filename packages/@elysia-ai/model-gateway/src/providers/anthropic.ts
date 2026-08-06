@@ -23,8 +23,17 @@ function toClaudeMessages(messages: DialogueMessage[]) {
     }))
 }
 
-export function createClaudeProvider(config: ProviderConfig): Provider {
-  const baseUrl = (config.endpoint ?? 'https://api.anthropic.com/v1').replace(/\/+$/, '')
+const DEFAULT_ENDPOINT = '/v1'
+
+export function createAnthropicProvider(config: ProviderConfig): Provider {
+  if (!config.baseURL) {
+    throw new Error(`anthropic provider "${config.id}" requires baseURL`)
+  }
+
+  const baseURL = config.baseURL.replace(/\/+$/, '')
+  const endpoint = config.endpoint ?? DEFAULT_ENDPOINT
+  const fullBaseUrl = `${baseURL}${endpoint}`
+
   const maxTokens = config.maxTokens ?? 4096
   const temperature = config.temperature ?? 0.7
   const timeoutMs = config.timeoutMs
@@ -33,9 +42,9 @@ export function createClaudeProvider(config: ProviderConfig): Provider {
     id: config.id,
     descriptor: {
       id: config.id,
-      type: 'claude',
+      type: 'anthropic',
       model: config.model,
-      endpoint: baseUrl,
+      endpoint: fullBaseUrl,
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
@@ -43,7 +52,7 @@ export function createClaudeProvider(config: ProviderConfig): Provider {
       const temp = request.temperature ?? temperature
       const timeout = request.timeoutMs ?? timeoutMs
 
-      const url = `${baseUrl}/messages`
+      const url = `${fullBaseUrl}/messages`
 
       const system = extractSystem(request.messages)
       const claudeMessages = toClaudeMessages(request.messages)
@@ -106,9 +115,9 @@ export function createClaudeProvider(config: ProviderConfig): Provider {
         ],
         provider: {
           id: config.id,
-          type: 'claude',
+          type: 'anthropic',
           model: json.model ?? model,
-          endpoint: baseUrl,
+          endpoint: fullBaseUrl,
         },
         usage: {
           inputTokens,

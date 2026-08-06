@@ -1,0 +1,10 @@
+$description:
+  enableReply: 是否允许主动回复消息。关闭后生命体只观察、更新内部状态，但不出声。
+  directWindowMs: 被直接点名（@ 或私聊）后，多久内的后续消息合并为一次回应（毫秒）。越大越倾向凑齐再回。
+  userBufferedWindowMs: 同一用户连续发言的攒话窗口（毫秒）。
+  threadBufferedWindowMs: 同一话题串的攒话窗口（毫秒）。
+  habitatBufferedWindowMs: 整个群聊场景的攒话窗口（毫秒）。
+
+$name:
+  基础设置: 基础设置
+  高级：行为节奏调参: 高级：行为节奏调参

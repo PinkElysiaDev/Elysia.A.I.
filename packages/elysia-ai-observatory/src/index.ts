@@ -7,6 +7,9 @@ export * from '@elysia-ai/observatory'
 
 export const name = 'elysia-ai-observatory'
 
+// 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
+export const inject = ['elysia.runtime']
+
 export const Config: Schema<ObservatoryConfig> = Schema.object({
   enabled: Schema.boolean().default(true).description('启用观测台（采集主链事件与诊断）。'),
   maxRecords: Schema.number().default(500).description('内存中保留的最大事件记录条数。'),
