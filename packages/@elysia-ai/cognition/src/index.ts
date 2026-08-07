@@ -24,10 +24,10 @@ export interface Config {
   salienceQuestionBonus: number
   salienceLengthFactor: number
   behaviorThreshold: number
-  aiEnhanced: boolean
-  aiFallbackToRuleBased: boolean
-  aiMinSalience: number
-  aiModelSlot: string
+  aiEnhanced?: boolean
+  aiFallbackToRuleBased?: boolean
+  aiMinSalience?: number
+  aiModelSlot?: string
 }
 
 function resolveScopeKey(stimulus: Stimulus): string {

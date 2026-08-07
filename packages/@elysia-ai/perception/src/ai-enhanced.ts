@@ -19,7 +19,7 @@ function shouldUseAiPerception(
 ): boolean {
   if (!config.aiEnhanced) return false
   if (!brain) return false
-  return text.trim().length >= config.aiMinTextLength
+  return text.trim().length >= (config.aiMinTextLength ?? 12)
 }
 
 // ─────────────────────────────────────────────────

@@ -4,15 +4,13 @@ commands:
 
 $description:
   manifestPath: 生命体清单 JSON 文件路径。留空则不加载预设生命体。
-  stateRepository: 生命状态仓储配置。
-  stateRepository.type: 生命状态仓储类型：memory 用于开发/测试；mongo 用于持久化状态。
-  stateRepository.mongo: MongoDB 生命状态仓储配置。
-  stateRepository.mongo.uri: MongoDB 连接 URI。当 type 为 mongo 时必填。
-  stateRepository.mongo.database: MongoDB 数据库名。
-  stateRepository.mongo.collection: MongoDB 集合名。
-  stateRepository.mongo.stateType: 状态类型分区键。
-  stateRepository.mongo.failFast: Mongo 初始化失败时是否中止 runtime 插件加载。
+  stateRepository: 生命状态仓储类型：memory 为内存仓储（重启即丢），mongo 为 MongoDB 持久化。
+  uri: MongoDB 连接 URI。当仓储类型为 mongo 时必填。
+  database: MongoDB 数据库名。
+  collection: MongoDB 集合名。
+  stateType: 状态类型分区键。
+  failFast: Mongo 初始化失败时是否中止 runtime 插件加载。
 
 $name:
   基础设置: 基础设置
-  高级：状态持久化: 高级：状态持久化
+  MongoDB 持久化: MongoDB 持久化

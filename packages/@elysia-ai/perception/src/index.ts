@@ -12,14 +12,14 @@ import { analyzeStimulusWithAi } from './ai-enhanced.js'
 export const internalName = 'elysia-ai-perception'
 
 export interface Config {
-  maxInputTokens: number
+  maxInputTokens?: number
   enabledIntentClassify: boolean
   enabledEntityExtract: boolean
   enabledSentiment: boolean
   aiEnhanced: boolean
-  aiFallbackToRuleBased: boolean
-  aiMinTextLength: number
-  aiModelSlot: string
+  aiFallbackToRuleBased?: boolean
+  aiMinTextLength?: number
+  aiModelSlot?: string
 }
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€

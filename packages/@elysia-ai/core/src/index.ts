@@ -17,6 +17,7 @@ export * from './types/perception.js'
 export * from './types/homeostasis.js'
 export * from './types/cognition.js'
 export * from './types/services.js'
+export * from './types/persistence.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod Schema（运行时校验）

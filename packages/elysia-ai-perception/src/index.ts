@@ -22,17 +22,23 @@ export const Config: Schema<PerceptionConfig> = Schema.intersect([
     aiEnhanced: Schema.boolean().default(false)
       .description('启用 AI 增强感知（需在 model-gateway 配置模型槽位）。'),
   }).description('基础设置'),
-  Schema.object({
-    maxInputTokens: Schema.number().default(8192)
-      .description('单次感知分析的最大输入 token 数。'),
-    aiFallbackToRuleBased: Schema.boolean().default(true)
-      .description('AI 感知失败时回退到规则分析。'),
-    aiMinTextLength: Schema.number().default(12)
-      .description('触发 AI 增强的最短文本长度。'),
-    aiModelSlot: Schema.string().default('')
-      .description('AI 感知分析使用的模型槽位名（在 model-gateway 中配置），留空则使用默认槽位。'),
-  }).description('高级：AI 增强'),
-])
+  Schema.union([
+    Schema.object({
+      aiEnhanced: Schema.const(true).required()
+        .description('启用 AI 增强感知（需在 model-gateway 配置模型槽位）。'),
+      maxInputTokens: Schema.number().default(8192)
+        .description('单次感知分析的最大输入 token 数。'),
+      aiFallbackToRuleBased: Schema.boolean().default(true)
+        .description('AI 感知失败时回退到规则分析。'),
+      aiMinTextLength: Schema.number().default(12)
+        .description('触发 AI 增强的最短文本长度。'),
+      aiModelSlot: Schema.string().default('')
+        .description('AI 感知分析使用的模型槽位名（在 model-gateway 中配置），留空则使用默认槽位。'),
+    }).description('AI 增强感知'),
+    Schema.object({}),
+  ]),
+  // schemastery 3.x 类型推断对「union 含空分支」会塌缩为空对象，运行时行为正确，此处断言绕过。
+]) as Schema<PerceptionConfig>
 
 export const apply = createElysiaPlugin<
   PerceptionConfig,

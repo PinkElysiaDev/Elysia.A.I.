@@ -88,7 +88,7 @@ function shouldUseAiCognition(
 ): boolean {
   if (!config.aiEnhanced) return false
   if (!brain) return false
-  return ruleResult.salience >= config.aiMinSalience
+  return ruleResult.salience >= (config.aiMinSalience ?? 0.2)
 }
 
 function createAiPrompt(context: CognitionContext, ruleResult: CognitionResult): string {

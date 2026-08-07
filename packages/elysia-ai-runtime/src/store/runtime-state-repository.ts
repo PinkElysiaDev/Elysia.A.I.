@@ -2,10 +2,12 @@ import type { HomeostasisState, LifeStateRepository } from '@elysia-ai/core'
 import type { RuntimeLogger } from '../context/index.js'
 import { MemoryStateRepository } from './memory-state-repository.js'
 import { MongoStateRepository, type MongoStateCollection } from './mongo-state-repository.js'
+import { connectMongo, type MongoConnection, type MongoClientLike, type MongoConnectorDependencies } from '@elysia-ai/shared'
 
 export type RuntimeStateRepositoryType = 'memory' | 'mongo'
 
-export interface RuntimeMongoStateRepositoryConfig {
+export interface RuntimeStateRepositoryConfig {
+  stateRepository?: RuntimeStateRepositoryType
   uri?: string
   database?: string
   collection?: string
@@ -13,25 +15,15 @@ export interface RuntimeMongoStateRepositoryConfig {
   failFast?: boolean
 }
 
-export interface RuntimeStateRepositoryConfig {
-  type?: RuntimeStateRepositoryType
-  mongo?: RuntimeMongoStateRepositoryConfig
-}
-
 export interface RuntimeStateRepositorySetup {
   repository: LifeStateRepository<HomeostasisState>
+  /** mongo 模式下共享的 Mongo 连接（供 persistence 服务暴露给 memory/bond 等）；memory 模式为 undefined */
+  mongoConnection?: MongoConnection
   dispose(): Promise<void>
 }
 
-export interface MongoClientLike {
-  connect(): Promise<unknown>
-  close(): Promise<unknown>
-  db(name: string): {
-    collection(name: string): MongoStateCollection<HomeostasisState>
-  }
-}
-
 export interface RuntimeStateRepositoryDependencies {
+  /** 注入点：测试或自定义场景下替换真实 MongoClient 构造（与 shared.MongoClientLike 对齐）。 */
   createMongoClient?(uri: string): MongoClientLike
 }
 
@@ -48,34 +40,30 @@ function createMemorySetup(): RuntimeStateRepositorySetup {
   }
 }
 
-async function createDefaultMongoClient(uri: string): Promise<MongoClientLike> {
-  const importer = new Function('specifier', 'return import(specifier)') as (
-    specifier: string,
-  ) => Promise<{ MongoClient: new (uri: string) => MongoClientLike }>
-
-  const mongodb = await importer('mongodb')
-  return new mongodb.MongoClient(uri)
-}
-
 async function createMongoSetup(
-  config: RuntimeMongoStateRepositoryConfig,
+  config: RuntimeStateRepositoryConfig,
   logger: RuntimeLogger,
   dependencies: RuntimeStateRepositoryDependencies,
 ): Promise<RuntimeStateRepositorySetup> {
   if (!config.uri) {
-    throw new Error('Mongo state repository requires mongo.uri')
+    throw new Error('Mongo state repository requires uri')
   }
 
-  const client = dependencies.createMongoClient
-    ? dependencies.createMongoClient(config.uri)
-    : await createDefaultMongoClient(config.uri)
+  const connectorDependencies: MongoConnectorDependencies = dependencies.createMongoClient
+    ? { createMongoClient: dependencies.createMongoClient }
+    : {}
 
-  await client.connect()
+  const connection = await connectMongo(
+    { uri: config.uri, database: config.database },
+    connectorDependencies,
+  )
 
   const database = config.database ?? DEFAULT_MONGO_DATABASE
   const collectionName = config.collection ?? DEFAULT_MONGO_COLLECTION
   const stateType = config.stateType ?? DEFAULT_MONGO_STATE_TYPE
-  const collection = client.db(database).collection(collectionName)
+  // connection.collection 要求 TDoc extends { id: string }，但 HomeostasisState 无 id 字段。
+  // 实际 collection 句柄是裸 mongodb driver，对文档形状无强制要求，用 cast 放宽。
+  const collection = (connection as { collection(name: string): unknown }).collection(collectionName) as unknown as MongoStateCollection<HomeostasisState>
   const repository = new MongoStateRepository<HomeostasisState>(collection, {
     stateType,
   })
@@ -92,8 +80,9 @@ async function createMongoSetup(
 
   return {
     repository,
+    mongoConnection: connection,
     async dispose() {
-      await client.close()
+      await connection.close()
       logger.info('mongo state repository disposed', {
         plugin: 'elysia-ai-runtime',
         phase: 'state-repository',
@@ -107,7 +96,7 @@ export async function createRuntimeStateRepository(
   logger: RuntimeLogger,
   dependencies: RuntimeStateRepositoryDependencies = {},
 ): Promise<RuntimeStateRepositorySetup> {
-  const type = config?.type ?? 'memory'
+  const type = config?.stateRepository ?? 'memory'
 
   if (type === 'memory') {
     logger.debug('memory state repository selected', {
@@ -121,18 +110,16 @@ export async function createRuntimeStateRepository(
     throw new Error(`Unsupported runtime state repository type: ${String(type)}`)
   }
 
-  const mongoConfig = config?.mongo ?? {}
-
   try {
-    return await createMongoSetup(mongoConfig, logger, dependencies)
+    return await createMongoSetup(config ?? {}, logger, dependencies)
   } catch (error) {
     logger.error('failed to initialize mongo state repository', error, {
       plugin: 'elysia-ai-runtime',
       phase: 'state-repository',
-      failFast: Boolean(mongoConfig.failFast),
+      failFast: Boolean(config?.failFast),
     })
 
-    if (mongoConfig.failFast) {
+    if (config?.failFast) {
       throw error
     }
 

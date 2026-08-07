@@ -69,7 +69,6 @@ export interface Config {
   enabled: boolean
   maxEntriesPerLife?: number
   contextLimit: number
-  repository?: MemoryRepositoryConfig
 }
 
 export interface MemoryRepositoryFactoryOptions {
@@ -1452,11 +1451,10 @@ export function createMemoryPluginRuntime(options: MemoryPluginRuntimeOptions): 
 
   const repository = options.repository ?? options.repositoryFactory?.({ config, logger }) ?? new MemoryMemoryRepository()
   const attributor = new DeterministicMemoryAttributor()
-  const repositoryType = config.repository?.type ?? 'memory'
+  const repositoryType = repository instanceof MongoMemoryRepository ? 'mongo' : 'memory'
   void runtime.context.eventBus.emit('repository.initialized', {
     component: 'memory',
     repositoryType,
-    collectionName: config.repository?.mongo?.collectionName,
     metadata: {
       plugin: 'elysia-ai-memory',
       provider: repository.constructor.name,
@@ -1505,7 +1503,7 @@ export function createMemoryPluginRuntime(options: MemoryPluginRuntimeOptions): 
     phase: 'apply',
     contextLimit: config.contextLimit,
     hasMaxEntriesPerLife: typeof config.maxEntriesPerLife === 'number',
-    repositoryType: config.repository?.type ?? 'memory',
+    repositoryType: repository instanceof MongoMemoryRepository ? 'mongo' : 'memory',
   })
 
   return {

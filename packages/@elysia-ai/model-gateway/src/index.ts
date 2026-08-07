@@ -288,14 +288,21 @@ export class DefaultModelGatewayService implements ModelGatewayService {
   ) {
     this.registry = registry ?? new ProviderRegistry()
     this.router = new GatewayRouter(this.registry)
-    const circuitBreakerConfig = { ...DEFAULT_CIRCUIT_BREAKER, ...config.circuitBreaker }
     this.healthTracker = new ProviderHealthTracker({
-      circuitBreakerEnabled: circuitBreakerConfig.enabled,
-      circuitBreakerFailureThreshold: circuitBreakerConfig.failureThreshold,
-      circuitBreakerCooldownMs: circuitBreakerConfig.cooldownMs,
+      circuitBreakerEnabled: config.enableCircuitBreaker ?? false,
+      circuitBreakerFailureThreshold: config.failureThreshold ?? 3,
+      circuitBreakerCooldownMs: config.cooldownMs ?? 30000,
     })
-    this.retryConfig = { ...DEFAULT_RETRY, ...config.retry }
-    this.fallbackConfig = { ...DEFAULT_FALLBACK, ...config.fallback }
+    this.retryConfig = {
+      maxRetries: config.enableRetry === false ? 0 : (config.maxRetries ?? 3),
+      baseDelayMs: config.baseDelayMs ?? 500,
+      maxDelayMs: config.maxDelayMs ?? 5000,
+    }
+    this.fallbackConfig = {
+      enabled: config.enableFallback ?? false,
+      slots: config.slots ?? {},
+      fallbackOnNonRetryable: config.fallbackOnNonRetryable ?? false,
+    }
 
     registerConfiguredProviders(this.registry, config)
 

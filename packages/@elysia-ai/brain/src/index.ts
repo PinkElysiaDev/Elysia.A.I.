@@ -36,7 +36,12 @@ export interface Config {
   systemPrompt?: string
   contextWindow?: number
   defaultModelSlot?: string
-  contextBudget?: ContextBudgetConfig
+  maxMemoryChars?: number
+  maxBondChars?: number
+  maxPersonaChars?: number
+  maxSystemPromptChars?: number
+  maxEstimatedTokens?: number
+  tokenEstimateRatio?: number
 }
 
 // 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
@@ -171,13 +176,13 @@ export class DefaultBrainService implements BrainService {
     this.defaultContextWindow = config.contextWindow ?? 20
     this.defaultModelSlot = config.defaultModelSlot
     this.contextBudget = {
-      maxMemoryChars: config.contextBudget?.maxMemoryChars ?? 4000,
-      maxBondChars: config.contextBudget?.maxBondChars ?? 3000,
-      maxPersonaChars: config.contextBudget?.maxPersonaChars ?? 2000,
-      maxSystemPromptChars: config.contextBudget?.maxSystemPromptChars ?? 12000,
-      maxEstimatedTokens: config.contextBudget?.maxEstimatedTokens ?? 3000,
-      tokenEstimateRatio: config.contextBudget?.tokenEstimateRatio ?? 4,
-      planner: config.contextBudget?.planner ?? new DefaultContextBudgetPlanner(),
+      maxMemoryChars: config.maxMemoryChars ?? 4000,
+      maxBondChars: config.maxBondChars ?? 3000,
+      maxPersonaChars: config.maxPersonaChars ?? 2000,
+      maxSystemPromptChars: config.maxSystemPromptChars ?? 12000,
+      maxEstimatedTokens: config.maxEstimatedTokens ?? 3000,
+      tokenEstimateRatio: config.tokenEstimateRatio ?? 4,
+      planner: new DefaultContextBudgetPlanner(),
     }
   }
 
@@ -316,7 +321,8 @@ export function createBrainPluginRuntime(options: BrainPluginRuntimeOptions): Br
     hasSystemPrompt: Boolean(config.systemPrompt),
     contextWindow: config.contextWindow ?? 20,
     defaultModelSlot: config.defaultModelSlot,
-    contextBudget: config.contextBudget,
+    maxMemoryChars: config.maxMemoryChars ?? 4000,
+    maxBondChars: config.maxBondChars ?? 3000,
   })
 
   return {

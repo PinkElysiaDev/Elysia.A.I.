@@ -60,7 +60,6 @@ export interface BondRepositoryConfig {
 export interface Config {
   enabled: boolean
   contextLimit: number
-  repository?: BondRepositoryConfig
 }
 
 export interface BondRepositoryFactoryOptions {
@@ -977,11 +976,10 @@ export function createBondPluginRuntime(options: BondPluginRuntimeOptions): Bond
   }
 
   const repository = options.repository ?? options.repositoryFactory?.({ config, logger }) ?? new MemoryBondRepository()
-  const repositoryType = config.repository?.type ?? 'memory'
+  const repositoryType = repository instanceof MongoBondRepository ? 'mongo' : 'memory'
   void runtime.context.eventBus.emit('repository.initialized', {
     component: 'bond',
     repositoryType,
-    collectionName: config.repository?.mongo?.collectionName,
     metadata: {
       plugin: 'elysia-ai-bond',
       provider: repository.constructor.name,
@@ -1024,7 +1022,7 @@ export function createBondPluginRuntime(options: BondPluginRuntimeOptions): Bond
     plugin: 'elysia-ai-bond',
     phase: 'apply',
     contextLimit: config.contextLimit,
-    repositoryType: config.repository?.type ?? 'memory',
+    repositoryType: repository instanceof MongoBondRepository ? 'mongo' : 'memory',
   })
 
   return {

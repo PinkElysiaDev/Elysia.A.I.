@@ -49,23 +49,43 @@ export const Config: Schema<ModelGatewayConfig> = Schema.intersect([
     defaultSlot: Schema.string().description('默认模型槽位名。当请求未指定槽位时使用。'),
   }).description('模型槽位（按用途分配模型）'),
   Schema.object({
-    retry: Schema.object({
+    enableRetry: Schema.boolean().default(true).description('启用重试策略。'),
+  }).description('重试配置'),
+  Schema.union([
+    Schema.object({
+      enableRetry: Schema.const(true).default(true),
       maxRetries: Schema.number().default(3).description('每个 provider 的最大重试次数。'),
       baseDelayMs: Schema.number().default(500).description('初始重试延迟（毫秒）。'),
       maxDelayMs: Schema.number().default(5000).description('最大重试延迟（毫秒）。'),
-    }).description('重试策略。'),
-    circuitBreaker: Schema.object({
-      enabled: Schema.boolean().default(false).description('启用 provider 熔断器。'),
+    }),
+    Schema.object({
+      enableRetry: Schema.const(false).required(),
+    }),
+  ]),
+  Schema.object({
+    enableCircuitBreaker: Schema.boolean().default(false).description('启用 provider 熔断器。'),
+  }).description('熔断配置'),
+  Schema.union([
+    Schema.object({
+      enableCircuitBreaker: Schema.const(true).required(),
       failureThreshold: Schema.number().default(3).description('触发熔断的连续失败次数。'),
       cooldownMs: Schema.number().default(30000).description('熔断冷却时长（毫秒）。'),
-    }).description('provider 熔断策略。'),
-    fallback: Schema.object({
-      enabled: Schema.boolean().default(false).description('启用 provider 槽位回退。'),
+    }),
+    Schema.object({}),
+  ]),
+  Schema.object({
+    enableFallback: Schema.boolean().default(false).description('启用回退槽位策略。'),
+  }).description('回退配置'),
+  Schema.union([
+    Schema.object({
+      enableFallback: Schema.const(true).required().description('启用回退槽位策略。'),
       slots: Schema.dict(Schema.array(String)).description('按源槽位键配置的回退槽位链。'),
       fallbackOnNonRetryable: Schema.boolean().default(false).description('遇到不可重试错误时也回退。'),
-    }).description('回退槽位策略。'),
-  }).description('高级：网关韧性（重试/熔断/回退）'),
-])
+    }),
+    Schema.object({}),
+  ]),
+  // schemastery 3.x 类型推断对「union 含 const 字段」会产生字面量类型，与核心库 boolean 类型不兼容，此处断言绕过。
+]) as Schema<ModelGatewayConfig>
 
 
 const PROVIDER_TYPES = new Set(['chat-completions', 'responses', 'gemini', 'anthropic'])
@@ -100,11 +120,11 @@ export function validateModelGatewayConfig(config: ModelGatewayConfig): void {
   }
 
   const slots = collectConfiguredSlots(config)
-  for (const [sourceSlot, fallbackSlots] of Object.entries(config.fallback?.slots ?? {})) {
+  for (const [sourceSlot, fallbackSlots] of Object.entries(config.slots ?? {})) {
     if (!slots.has(sourceSlot)) {
       throw new Error(`elysia-ai-model-gateway: fallback source slot "${sourceSlot}" is not configured`)
     }
-    for (const fallbackSlot of fallbackSlots) {
+    for (const fallbackSlot of fallbackSlots as string[]) {
       if (!slots.has(fallbackSlot)) {
         throw new Error(`elysia-ai-model-gateway: fallback slot "${fallbackSlot}" is not configured`)
       }
@@ -120,7 +140,7 @@ export function preflightModelGatewayConfig(config: ModelGatewayConfig): Preflig
       plugin: 'elysia-ai-model-gateway',
       providerCount: Object.keys(config.providers ?? {}).length,
       slotCount: Object.keys(config.providerSlots ?? {}).length,
-      fallbackEnabled: config.fallback?.enabled === true,
+      fallbackEnabled: config.enableFallback === true,
     })
   } catch (error) {
     return createPreflightResult([
@@ -170,6 +190,11 @@ function registerDebugCommands(ctx: Context, service: DefaultModelGatewayService
 }
 
 export function apply(ctx: Context, config: ModelGatewayConfig) {
+  if (!config) {
+    ctx.logger('elysia-ai-model-gateway').warn('model-gateway config is null, skipping initialization')
+    return
+  }
+
   const logger = ctx.logger('elysia-ai-model-gateway')
   const runtime = getRequiredElysiaService<{ context: { eventBus: EventBus<CoreEventMap> } }>(ctx, {
     formalName: 'elysia.runtime',

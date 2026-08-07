@@ -1,14 +1,11 @@
 import { Schema, type Context } from 'koishi'
-import { createBondPluginRuntime, MongoBondRepository } from '@elysia-ai/bond'
-import type { Config as BondConfig, BondRepositoryFactoryOptions, MongoBondCollection, MongoBondRepositoryOptions } from '@elysia-ai/bond'
-import type { BondContextProvider, BondRepository, BondService, CoreEventMap, EventBus } from '@elysia-ai/core'
+import { createBondPluginRuntime, MemoryBondRepository, MongoBondRepository } from '@elysia-ai/bond'
+import type { Config as BondConfig, BondRepositoryFactoryOptions, MongoBondCollection } from '@elysia-ai/bond'
+import type { BondContextProvider, BondRepository, BondService, CoreEventMap, EventBus, PersistenceService } from '@elysia-ai/core'
 import {
-  createPreflightResult,
+  getOptionalElysiaService,
   getRequiredElysiaService,
-  issue,
-  lazyMongoCollection,
   registerElysiaService,
-  type LazyMongoCollection,
 } from '@elysia-ai/shared'
 export * from '@elysia-ai/bond'
 
@@ -20,37 +17,10 @@ type BondPluginConfig = BondConfig & {
 
 export function createMongoBondRepositoryFactory(
   collection: MongoBondCollection,
-  options: MongoBondRepositoryOptions = {},
+  options: { collectionName?: string; ensureIndexes?: boolean } = {},
 ): (factoryOptions: BondRepositoryFactoryOptions) => BondRepository {
-  return () => {
-    const repository = new MongoBondRepository(collection, options)
-    void repository.ensureIndexes()
-    return repository
-  }
-}
-
-// 内建惰性 Mongo 连接的句柄（供 dispose 关闭）。按 apply 调用作用域追踪。
-let activeMongoConnection: LazyMongoCollection<{ id: string }> | undefined
-
-/**
- * 用配置的 mongo.uri 内建仓储工厂（惰性连接，首次读写才连库）。
- * 宿主只需给 URL，无需自己注入 repositoryFactory。返回 undefined 表示未配 uri。
- */
-function buildUriRepositoryFactory(
-  config: BondPluginConfig,
-): ((options: BondRepositoryFactoryOptions) => BondRepository) | undefined {
-  const uri = config.repository?.mongo?.uri
-  if (!uri) return undefined
-  const lazy = lazyMongoCollection<{ id: string }>(
-    { uri, database: config.repository?.mongo?.database },
-    config.repository?.mongo?.collectionName ?? 'elysia_bonds',
-  )
-  activeMongoConnection = lazy
   return ({ logger }) => {
-    const repository = new MongoBondRepository(lazy.collection as MongoBondCollection, {
-      collectionName: config.repository?.mongo?.collectionName,
-      ensureIndexes: config.repository?.mongo?.indexes,
-    })
+    const repository = new MongoBondRepository(collection, options)
     // 惰性连接：索引建立失败（如 Mongo 不可达）记录而非抛出未捕获 rejection。
     void repository.ensureIndexes().catch((error) => {
       logger.error('failed to ensure mongo indexes', error, { plugin: 'elysia-ai-bond', phase: 'ensure-indexes' })
@@ -59,81 +29,50 @@ function buildUriRepositoryFactory(
   }
 }
 
-export function validateBondRepositoryConfig(config: BondPluginConfig): void {
-  const repositoryType = config.repository?.type ?? 'memory'
-  if (repositoryType === 'memory') return
-  if (repositoryType === 'mongo') {
-    if (!config.repositoryFactory && !config.repository?.mongo?.uri) {
-      throw new Error('elysia-ai-bond: mongo repository requires mongo.uri or an injected repositoryFactory')
-    }
-    return
-  }
-  throw new Error(`elysia-ai-bond: unknown repository provider type "${repositoryType}"`)
-}
-
-
-export function preflightBondConfig(config: BondPluginConfig) {
-  try {
-    validateBondRepositoryConfig(config)
-    const repositoryType = config.repository?.type ?? 'memory'
-    const warnings = repositoryType === 'memory'
-      ? [issue('elysia-ai-bond', 'bond.repository.memory-default', 'warning', 'bond plugin uses in-memory repository; relationship data is not persistent', { repositoryType: 'memory' })]
-      : []
-    return createPreflightResult(warnings, {
-      plugin: 'elysia-ai-bond',
-      repositoryType,
-      persistent: repositoryType === 'mongo',
-    })
-  } catch (error) {
-    return createPreflightResult([
-      issue('elysia-ai-bond', 'repository.invalid', 'error', error instanceof Error ? error.message : String(error), {
-        repositoryType: config.repository?.type ?? 'memory',
-      }),
-    ], { plugin: 'elysia-ai-bond' })
-  }
-}
-
 export const name = 'elysia-ai-bond'
 
 // 声明对 runtime 的必需依赖：cordis 会在 elysia.runtime 就绪后再跑本插件 apply。
 export const inject = ['elysia.runtime']
 
-export const Config: Schema<BondConfig> = Schema.intersect([
-  Schema.object({
-    enabled: Schema.boolean().default(true).description('启用羁绊（关系）能力。'),
-    contextLimit: Schema.number().default(5).description('注入对话的羁绊条数上限。'),
-  }).description('基础设置'),
-  Schema.object({
-    repository: Schema.object({
-      type: Schema.union([
-        Schema.const('memory' as const),
-        Schema.const('mongo' as const),
-      ]).default('memory').description('仓储类型：memory 为内存（重启即丢，适合开发）；mongo 为持久化。'),
-      mongo: Schema.object({
-        uri: Schema.string().role('secret').description('MongoDB 连接 URL（用户自部署）。填写后即启用 mongo 仓储。'),
-        database: Schema.string().description('MongoDB 数据库名（默认 elysia_ai）。'),
-        collectionName: Schema.string().description('Mongo 集合名。'),
-        indexes: Schema.boolean().default(true).description('启动时确保 Mongo 索引。'),
-      }).description('Mongo 仓储选项。'),
-    }).description('仓储配置。'),
-  }).description('高级：持久化仓储'),
-])
+export const Config: Schema<BondConfig> = Schema.object({
+  enabled: Schema.boolean().default(true).description('启用羁绊（关系）能力。'),
+  contextLimit: Schema.number().default(5).description('注入对话的羁绊条数上限。'),
+})
 
+/**
+ * 解析羁绊仓储工厂：
+ * 1. 若宿主注入了 repositoryFactory，优先用它（测试/自定义场景）。
+ * 2. 否则从 elysia.persistence 服务获取：mongo 模式拿到 collection 句柄 → 建 mongo 仓储；
+ *    memory 模式或服务未注册 → 内存降级。
+ */
+function resolveBondRepositoryFactory(
+  config: BondPluginConfig,
+  ctx: Context,
+  logger: ReturnType<Context['logger']>,
+): (options: BondRepositoryFactoryOptions) => BondRepository {
+  if (config.repositoryFactory) return config.repositoryFactory
 
-function resolveBondRepositoryFactory(config: BondPluginConfig, logger: ReturnType<Context['logger']>) {
-  try {
-    validateBondRepositoryConfig(config)
-  } catch (error) {
-    logger.error('invalid bond repository configuration', error, {
+  const persistence = getOptionalElysiaService<PersistenceService>(ctx, {
+    formalName: 'elysia.persistence',
+    legacyName: 'elysia-ai-persistence',
+  })
+
+  const collection = persistence?.getCollection('elysia_bonds')
+  if (persistence && collection) {
+    logger.info('bond repository resolved from persistence service', {
       plugin: 'elysia-ai-bond',
-      phase: 'apply',
-      repositoryType: config.repository?.type ?? 'memory',
-      collectionName: config.repository?.mongo?.collectionName ?? 'elysia_bonds',
+      phase: 'repository-resolve',
+      mode: persistence.mode,
     })
-    throw error
+    return createMongoBondRepositoryFactory(collection as unknown as MongoBondCollection, { ensureIndexes: true })
   }
-  // 优先用宿主注入的工厂；否则若配了 mongo.uri，用内建惰性连接工厂。
-  return config.repositoryFactory ?? buildUriRepositoryFactory(config)
+
+  logger.info('bond repository falling back to in-memory', {
+    plugin: 'elysia-ai-bond',
+    phase: 'repository-resolve',
+    persistenceMode: persistence?.mode ?? 'unavailable',
+  })
+  return () => new MemoryBondRepository()
 }
 
 export function apply(ctx: Context, config: BondPluginConfig) {
@@ -153,16 +92,13 @@ export function apply(ctx: Context, config: BondPluginConfig) {
 
   if (!runtime?.context?.eventBus) return
 
-  activeMongoConnection = undefined
   const bondRuntime = createBondPluginRuntime({
     runtime,
     config,
     logger,
-    repositoryFactory: resolveBondRepositoryFactory(config, logger),
+    repositoryFactory: resolveBondRepositoryFactory(config, ctx, logger),
   })
   if (!bondRuntime) return
-  const mongoConnection = activeMongoConnection
-  activeMongoConnection = undefined
 
   registerElysiaService(ctx, {
     formalName: 'elysia.bond',
@@ -178,11 +114,7 @@ export function apply(ctx: Context, config: BondPluginConfig) {
 
   ctx.on('dispose', () => {
     bondRuntime.dispose()
-    if (mongoConnection) {
-      void mongoConnection.close().catch((error) => {
-        logger.error('failed to close mongo connection', error, { plugin: 'elysia-ai-bond', phase: 'dispose' })
-      })
-    }
+    // 不再 close mongo 连接：持久化连接生命周期由 runtime 的 stateRepository 统一管理。
     if (runtime.bondRepository === bondRuntime.repository) runtime.bondRepository = undefined
     if (runtime.bondService === bondRuntime.bondService) runtime.bondService = undefined
     if (runtime.bondContextProvider === bondRuntime.contextProvider) runtime.bondContextProvider = undefined

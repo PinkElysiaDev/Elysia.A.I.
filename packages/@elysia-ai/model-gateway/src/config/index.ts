@@ -54,10 +54,24 @@ export interface ModelGatewayConfig {
   providerSlots?: Record<string, ModelProviderSlotConfig>
   /** 默认槽位名 */
   defaultSlot?: string
-  /** 容错重试配置 */
-  retry?: RetryConfig
-  /** 熔断配置 */
-  circuitBreaker?: CircuitBreakerConfig
-  /** fallback slot 配置 */
-  fallback?: FallbackConfig
+  /** 启用重试策略 */
+  enableRetry?: boolean
+  /** 每个 provider 的最大重试次数 */
+  maxRetries?: number
+  /** 初始重试延迟（毫秒） */
+  baseDelayMs?: number
+  /** 最大重试延迟（毫秒） */
+  maxDelayMs?: number
+  /** 启用 provider 熔断器 */
+  enableCircuitBreaker?: boolean
+  /** 触发熔断的连续失败次数 */
+  failureThreshold?: number
+  /** 熔断冷却时长（毫秒） */
+  cooldownMs?: number
+  /** 启用回退槽位策略 */
+  enableFallback?: boolean
+  /** 按源槽位键配置的回退槽位链 */
+  slots?: Record<string, string[]>
+  /** 遇到不可重试错误时也回退 */
+  fallbackOnNonRetryable?: boolean
 }
