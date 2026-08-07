@@ -42,15 +42,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-model-gateway"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. model gateway Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. model gateway Koishi plugin.",
+      "zh-CN": "Elysia A.I. 模型网关插件。"
+    },
     "service": {
       "implements": [
         "elysia.modelGateway"

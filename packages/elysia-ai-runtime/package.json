@@ -45,16 +45,21 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-runtime"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
     "description": {
-      "en": "Elysia A.I. runtime plugin providing lifecycle, event bus and life instance loading."
+      "en": "Elysia A.I. runtime plugin providing lifecycle, event bus and life instance loading.",
+      "zh-CN": "Elysia A.I. 运行时插件，提供生命周期、事件总线和生命体加载功能。"
     },
     "service": {
       "implements": [

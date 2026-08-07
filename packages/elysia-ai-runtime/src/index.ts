@@ -23,7 +23,7 @@ export interface Config extends RuntimeStateRepositoryConfig {
 export const Config: Schema<Config> = Schema.intersect([
   Schema.object({
     manifestPath: Schema.string()
-      .description('生命体清单 JSON 文件路径。留空则不加载预设生命体。'),
+      .description('生命体清单 JSON 文件路径。留空则不加载预设生命体。模板下载：https://raw.githubusercontent.com/PinkElysiaDev/elysia-ai/main/manifest.example.json'),
     stateRepository: Schema.union(['memory', 'mongo'])
       .default('memory')
       .description('生命状态仓储类型：memory 为内存仓储（重启即丢），mongo 为 MongoDB 持久化。'),

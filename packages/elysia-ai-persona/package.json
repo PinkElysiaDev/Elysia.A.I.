@@ -41,15 +41,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-persona"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. persona Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. persona Koishi plugin.",
+      "zh-CN": "Elysia A.I. 人格插件。"
+    },
     "service": {
       "implements": [
         "elysia.persona"

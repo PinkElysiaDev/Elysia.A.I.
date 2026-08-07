@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+  "lifeInstances": [
+    {
+      "id": "roza",
+      "type": "elysia-default",
+      "enabled": true,
+      "meta": {
+        "name": "roza"
+      },
+      "extensions": {
+        "persona": {
+          "name": "roza",
+          "systemPrompt": "你是蔷薇，是西安交通大学……（替换为你的完整人设提示词）",
+          "traits": ["冷静", "理智", "礼貌"],
+          "tone": "gentle"
+        },
+        "projection": {
+          "rules": [
+            {
+              "id": "roza-qq-group-a",
+              "enabled": true,
+              "priority": 10,
+              "platform": "qq",
+              "habitatId": "123456789"
+            },
+            {
+              "id": "roza-qq-group-b",
+              "enabled": true,
+              "priority": 10,
+              "platform": "qq",
+              "habitatId": "987654321"
+            },
+            {
+              "id": "roza-discord-channel",
+              "enabled": true,
+              "priority": 10,
+              "platform": "discord",
+              "channelId": "111222333444555666"
+            },
+            {
+              "id": "roza-telegram-group",
+              "enabled": true,
+              "priority": 10,
+              "platform": "telegram",
+              "habitatId": "-1001234567890"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "elysia",
+      "type": "elysia-default",
+      "enabled": true,
+      "meta": {
+        "name": "Elysia"
+      },
+      "extensions": {
+        "persona": {
+          "name": "Elysia",
+          "systemPrompt": "You are Elysia, a cheerful virtual life. Reply warmly.",
+          "traits": ["活泼", "开朗"],
+          "tone": "cheerful"
+        },
+        "projection": {
+          "rules": [
+            {
+              "id": "elysia-discord-alt",
+              "enabled": true,
+              "priority": 10,
+              "platform": "discord",
+              "channelId": "777888999000111222"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+

@@ -46,16 +46,21 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-body"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
     "description": {
-      "en": "Elysia A.I. body plugin converting platform messages into internal stimuli and injecting them into runtime."
+      "en": "Elysia A.I. body plugin converting platform messages into internal stimuli and injecting them into runtime.",
+      "zh-CN": "Elysia A.I. 消息适配插件，将平台消息转换为内部刺激并注入运行时。"
     },
     "service": {
       "implements": [

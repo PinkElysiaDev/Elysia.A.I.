@@ -42,15 +42,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-observatory"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. observatory Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. observatory Koishi plugin.",
+      "zh-CN": "Elysia A.I. 观测台插件。"
+    },
     "service": {
       "implements": [
         "elysia.observatory"

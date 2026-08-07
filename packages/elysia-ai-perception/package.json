@@ -41,15 +41,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-perception"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. perception Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. perception Koishi plugin.",
+      "zh-CN": "Elysia A.I. 感知插件。"
+    },
     "service": {
       "implements": [
         "elysia.perception"

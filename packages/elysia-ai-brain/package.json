@@ -42,15 +42,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-brain"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. brain Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. brain Koishi plugin.",
+      "zh-CN": "Elysia A.I. 大脑插件。"
+    },
     "service": {
       "implements": [
         "elysia.brain"

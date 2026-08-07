@@ -45,15 +45,22 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git",
+    "directory": "packages/elysia-ai-memory"
   },
   "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
   "bugs": {
     "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
   },
   "author": "PinkElysiaDev",
+  "contributors": [
+    "PinkElysiaDev"
+  ],
   "koishi": {
-    "description": "Elysia A.I. memory Koishi plugin.",
+    "description": {
+      "en": "Elysia A.I. memory Koishi plugin.",
+      "zh-CN": "Elysia A.I. 记忆插件。"
+    },
     "service": {
       "implements": [
         "elysia.memory"
