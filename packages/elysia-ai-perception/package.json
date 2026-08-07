@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-elysia-ai-perception",
   "description": "Elysia A.I. perception Koishi plugin.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
