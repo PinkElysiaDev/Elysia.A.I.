@@ -89,3 +89,16 @@ describe('R1 perception 中文情感分析', () => {
     expect(result.sentiment.label).toBe('neutral')
   })
 })
+
+describe('R1 perception 中文时间实体', () => {
+  it('识别无空格中文时间词', () => {
+    const result = analyzeStimulus(stim('今天下午见'), config)
+    const times = result.entities.filter((entity) => entity.type === 'time').map((entity) => entity.value)
+    expect(times).toEqual(expect.arrayContaining(['今天', '下午']))
+  })
+
+  it('识别中文时钟写法', () => {
+    const result = analyzeStimulus(stim('我们 14：30 出发'), config)
+    expect(result.entities.some((entity) => entity.type === 'time' && entity.value === '14：30')).toBe(true)
+  })
+})

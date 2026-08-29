@@ -37,11 +37,22 @@ export interface PersonaService {
   getDiagnostics(): CapabilityDiagnostics
 }
 
+export interface ObservatoryTraceRecord {
+  stimulusId: string
+  kind: 'stimulus' | 'life'
+  lifeId?: string
+  root: unknown
+  events: unknown[]
+  recordedAt: number
+}
+
 export interface ObservatoryServiceFacade {
   recordEvent(eventName: string, payload: unknown): void
   queryEvents(query?: Record<string, unknown>): unknown[]
   getSnapshot(): unknown
   getOperationalSnapshot?(): unknown
+  /** 最近完成的管线 trace（runtime.trace.completed 汇聚）。 */
+  getRecentTraces?(options?: { stimulusId?: string, limit?: number }): ObservatoryTraceRecord[]
   getDiagnostics(): CapabilityDiagnostics
 }
 

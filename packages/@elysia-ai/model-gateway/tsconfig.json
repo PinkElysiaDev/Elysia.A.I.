@@ -10,6 +10,21 @@
   ],
   "references": [
     {
+      "path": "../canonical"
+    },
+    {
+      "path": "../protocol-openai"
+    },
+    {
+      "path": "../protocol-anthropic"
+    },
+    {
+      "path": "../protocol-gemini"
+    },
+    {
+      "path": "../protocol-responses"
+    },
+    {
       "path": "../core"
     },
     {

@@ -58,7 +58,16 @@ export class OutboundRouteRegistry {
   }
 
   get(sourceStimulusId: string): OutboundRoute | undefined {
-    return this.routes.get(sourceStimulusId)
+    const direct = this.routes.get(sourceStimulusId)
+    if (direct) return direct
+
+    // followup 重放的 stimulus id 形如 "<原id>:followup:<ts>"，不在本表登记。
+    // 剥掉后缀回退查原始入站消息的路由，延迟回复才能发回原会话（P1-7）。
+    const marker = sourceStimulusId.indexOf(':followup:')
+    if (marker > 0) {
+      return this.routes.get(sourceStimulusId.slice(0, marker))
+    }
+    return undefined
   }
 
   clear(): void {

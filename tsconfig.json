@@ -2,6 +2,24 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
+      "@elysia-ai/kernel": [
+        "./packages/@elysia-ai/kernel/src/index.ts"
+      ],
+      "@elysia-ai/canonical": [
+        "./packages/@elysia-ai/canonical/src/index.ts"
+      ],
+      "@elysia-ai/protocol-openai": [
+        "./packages/@elysia-ai/protocol-openai/src/index.ts"
+      ],
+      "@elysia-ai/protocol-anthropic": [
+        "./packages/@elysia-ai/protocol-anthropic/src/index.ts"
+      ],
+      "@elysia-ai/protocol-gemini": [
+        "./packages/@elysia-ai/protocol-gemini/src/index.ts"
+      ],
+      "@elysia-ai/protocol-responses": [
+        "./packages/@elysia-ai/protocol-responses/src/index.ts"
+      ],
       "@elysia-ai/core": [
         "./packages/@elysia-ai/core/src/index.ts"
       ],

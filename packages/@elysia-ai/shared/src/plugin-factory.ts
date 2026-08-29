@@ -1,20 +1,24 @@
 import type { Context } from 'koishi'
+import type { KernelPluginManifest } from '@elysia-ai/core'
 import { getRequiredElysiaService, registerElysiaService } from './service-registry.js'
 
 // ─────────────────────────────────────────────────
-// Elysia 顶层插件工厂
+// Elysia 顶层插件工厂 v2
 //
 // 收敛 elysia-ai-* 顶层 wrapper 中重复的 apply() 生命周期骨架：
 //   1. 取 logger
 //   2. 解析 runtime 服务（必需），缺失即记录并放弃
 //   3. eventBus 门控：runtime.context.eventBus 不存在即放弃
-//   4. 调用 build() 构造插件运行时；build 返回 undefined 则放弃
+//   4. 注册插件 manifest（可选）到 runtime 的 manifest 注册表——
+//      runtime.start() 时统一做依赖/版本/命名空间兼容校验（告警式）
+//   5. 调用 build() 构造插件运行时；build 返回 undefined 则放弃
 //      （build 内部完成额外依赖解析、附加门控、runtime 形状重塑）
-//   5. 注册服务到 ctx（formal + legacy 别名）
-//   6. dispose 时调用 handle.dispose()
+//   6. 注册服务到 ctx（formal + legacy 别名）
+//   7. dispose 时调用 handle.dispose() 并注销 manifest
 //
 // 仅服务于“标准” wrapper。带仓储工厂、命令注册、自定义事件接线的
-// wrapper（memory/bond/model-gateway/observatory/body）保持显式实现。
+// wrapper（memory/bond/model-gateway/observatory/body）保持显式实现
+// （但同样推荐注册 manifest 以纳入兼容治理）。
 // ─────────────────────────────────────────────────
 
 export type ElysiaPluginLogger = ReturnType<Context['logger']>
@@ -45,6 +49,12 @@ export interface ElysiaPluginDescriptor<TConfig, TRuntime, TService> {
   /** runtime 缺失时日志里的描述，默认 'runtime service'。 */
   runtimeDescription?: string
   /**
+   * 插件 manifest（kernel 兼容治理）。提供时自动注册到
+   * runtime.context.manifests，runtime.start() 统一校验
+   * 依赖存在性 / frameworkApiVersion / configNamespace 冲突（告警式）。
+   */
+  manifest?: KernelPluginManifest
+  /**
    * 构造插件运行时。在此完成额外依赖解析、附加门控（返回 undefined 即放弃注册）、
    * 以及 runtime 形状重塑。返回的 handle 至少需含 service 与 dispose。
    *
@@ -60,7 +70,7 @@ export interface ElysiaPluginDescriptor<TConfig, TRuntime, TService> {
 
 export function createElysiaPlugin<
   TConfig,
-  TRuntime extends { context?: { eventBus?: unknown } },
+  TRuntime extends { context?: { eventBus?: unknown, manifests?: { register(manifest: KernelPluginManifest): () => void } } },
   TService,
 >(
   descriptor: ElysiaPluginDescriptor<TConfig, TRuntime, TService>,
@@ -77,10 +87,18 @@ export function createElysiaPlugin<
 
     if (!runtime?.context?.eventBus) return
 
-    const handle = descriptor.build({ ctx, runtime, config, logger })
-    if (!handle) return
+    // manifest 注册（可选）：纳入 runtime.start() 的兼容治理。
+    const unregisterManifest = descriptor.manifest
+      ? runtime.context.manifests?.register(descriptor.manifest)
+      : undefined
 
-    registerElysiaService(ctx, {
+    const handle = descriptor.build({ ctx, runtime, config, logger })
+    if (!handle) {
+      unregisterManifest?.()
+      return
+    }
+
+    const unregister = registerElysiaService(ctx, {
       formalName: descriptor.serviceFormalName,
       legacyName: descriptor.serviceLegacyName,
       service: handle.service,
@@ -88,6 +106,12 @@ export function createElysiaPlugin<
       plugin: descriptor.name,
     })
 
-    ctx.on('dispose', () => handle.dispose())
+    // 正式销毁由 cordis effect 托管；兼容句柄兜底保证非 cordis 运行环境
+    // （测试 fake context 等）dispose 后服务同样被清空。
+    ctx.on('dispose', () => {
+      unregister()
+      unregisterManifest?.()
+      handle.dispose()
+    })
   }
 }

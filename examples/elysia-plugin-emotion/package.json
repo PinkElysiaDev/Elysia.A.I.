@@ -1,0 +1,48 @@
+{
+  "name": "elysia-plugin-emotion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Elysia A.I. 第三方插件示例：情绪模块。示范 kernel 全部新机制——阶段挂载（perception 与 cognition 之间）、共享上下文读写、类型化扩展事件（声明合并）、manifest 兼容治理、manifest.json extensions 配置消费、createHarness 测试。",
+  "type": "module",
+  "main": "lib/index.cjs",
+  "module": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "license": "MIT",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "require": "./lib/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "workspace:*",
+    "@elysia-ai/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "koishi": "^4.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1",
+    "koishi": "^4.18.0",
+    "typescript": "^5.0.0"
+  },
+  "koishi": {
+    "description": {
+      "en": "Elysia A.I. example emotion plugin (framework reference implementation).",
+      "zh-CN": "Elysia A.I. 情绪模块示例插件（框架参考实现）"
+    },
+    "service": {
+      "implements": [
+        "elysia.emotion"
+      ]
+    }
+  }
+}

@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { apply } from '../packages/elysia-ai-model-gateway/src/index.js'
 import type { Config } from '../packages/@elysia-ai/model-gateway/src/index.js'
 
@@ -61,33 +62,37 @@ function createCommandRecordingContext(observatory?: any) {
     ctx['elysia-ai-observatory'] = observatory
   }
 
-  return { ctx, commands, eventBus }
+  return { ctx: asCordisContext(ctx), commands, eventBus }
 }
 
 function createGatewayConfig(): Config {
   return {
-    slots: {
+    providers: {
       reasoning: {
         type: 'gemini',
         apiKey: 'gemini-secret-key',
-        endpoint: 'https://gemini.example/v1beta',
-        model: 'gemini-1.5-pro',
+        baseURL: 'https://gemini.example',
       },
       fast: {
-        type: 'openai-compatible',
+        type: 'chat-completions',
         apiKey: 'fast-secret-key',
-        endpoint: 'https://compatible.example/v1',
-        model: 'fast-model',
+        baseURL: 'https://compatible.example',
       },
     },
+    providerSlots: {
+      reasoning: { provider: 'reasoning', model: 'gemini-1.5-pro' },
+      fast: { provider: 'fast', model: 'fast-model' },
+    },
     defaultSlot: 'reasoning',
-    retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-    circuitBreaker: { enabled: true, failureThreshold: 1, cooldownMs: 30000 },
-    fallback: {
-      enabled: true,
-      slots: {
-        reasoning: ['fast'],
-      },
+    maxRetries: 0,
+    baseDelayMs: 1,
+    maxDelayMs: 1,
+    enableCircuitBreaker: true,
+    failureThreshold: 1,
+    cooldownMs: 30000,
+    enableFallback: true,
+    slots: {
+      reasoning: ['fast'],
     },
   }
 }
@@ -126,7 +131,7 @@ describe('Phase 34 Gateway Debug Commands', () => {
     expect(output).toContain('type: gemini')
     expect(output).toContain('model: gemini-1.5-pro')
     expect(output).toContain('fast -> slot:fast')
-    expect(output).toContain('type: openai-compatible')
+    expect(output).toContain('type: chat-completions')
     expect(output).toContain('model: fast-model')
     expect(output).not.toContain('gemini-secret-key')
     expect(output).not.toContain('fast-secret-key')
@@ -145,7 +150,7 @@ describe('Phase 34 Gateway Debug Commands', () => {
     expect(output).toContain('model: gemini-1.5-pro')
     expect(output).toContain('endpoint: https://gemini.example/v1beta')
     expect(output).toContain('- slot:fast')
-    expect(output).toContain('type: openai-compatible')
+    expect(output).toContain('type: chat-completions')
     expect(output).toContain('endpoint: https://compatible.example/v1')
     expect(output).not.toContain('secret-key')
   })
@@ -162,7 +167,7 @@ describe('Phase 34 Gateway Debug Commands', () => {
       messages: [{ role: 'assistant' as const, content: 'ok' }],
       provider: {
         id: 'slot:fast',
-        type: 'openai-compatible' as const,
+        type: 'chat-completions' as const,
         model: 'fast-model',
       },
       finishReason: 'stop',

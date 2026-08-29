@@ -820,6 +820,11 @@ export class MemoryMemoryRepository implements MemoryRepository {
     return cloneEntry(updated)
   }
 
+  /** 从本地 Map 硬逐出（区别于软删除的 remove）；供 Mongo 子类控制本地副本规模。 */
+  evictLocal(id: string): void {
+    this.entries.delete(id)
+  }
+
   async remove(id: string): Promise<void> {
     const current = this.entries.get(id)
     if (!current) return
@@ -953,20 +958,27 @@ export class MongoMemoryRepository extends MemoryMemoryRepository {
   async save(entry: MemoryEntry): Promise<void> {
     await super.save(entry)
     await this.gateway.upsert(entry.id, entry)
+    // 本地 Map 只为 update/remove 的读-改-写短暂服务，写后即逐出，
+    // 避免长生命周期进程无界增长（P1-15）。
+    this.evictLocal(entry.id)
   }
 
   async update(id: string, patch: Partial<MemoryEntry>): Promise<MemoryEntry> {
-    await this.ensureLocal(id)
+    // 强制用 Mongo 最新值覆盖本地副本再合并：本地缓存可能陈旧，
+    // 直接合并后整文档 $set 会把其他进程的更新覆盖丢失（P1-15）。
+    await this.ensureLocalRefresh(id)
     const updated = await super.update(id, patch)
     await this.gateway.upsert(updated.id, updated)
+    this.evictLocal(id)
     return updated
   }
 
   async remove(id: string): Promise<void> {
-    await this.ensureLocal(id)
+    await this.ensureLocalRefresh(id)
     await super.remove(id)
     const updated = await super.getById(id)
     if (updated) await this.gateway.upsert(updated.id, updated)
+    this.evictLocal(id)
   }
 
   /**
@@ -1364,8 +1376,13 @@ export class DefaultMemoryService implements MemoryService {
     const maxEntries = this.options.maxEntriesPerLife
     if (!maxEntries || maxEntries <= 0) return
 
+    // 只统计 active 记忆（P0-4）：archived 记忆不占上限、也不会被再次选中。
+    // 此前 archived 也计入，条目一旦归档只增不减，archived 数达到上限后
+    // 每次新建记忆都会把溢出数量的条目（含全部 active）归档，活跃记忆
+    // 会被逐步清空。
     const entries = await this.repository.listByLifeId(lifeId, {
       includeDeleted: false,
+      status: 'active',
       limit: maxEntries + 1000,
     })
 

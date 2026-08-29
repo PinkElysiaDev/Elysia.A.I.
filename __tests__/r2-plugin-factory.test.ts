@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createElysiaPlugin } from '../packages/@elysia-ai/shared/src/index.js'
 
 // R2-4：createElysiaPlugin 工厂契约测试。
@@ -19,7 +20,7 @@ function createFakeContext() {
     }),
   }
   return {
-    ctx: ctx as any,
+    ctx: asCordisContext(ctx as any),
     logger,
     runDispose: () => disposeHandlers.forEach((h) => h()),
   }

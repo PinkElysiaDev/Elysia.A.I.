@@ -210,6 +210,13 @@ export function apply(ctx: Context, config: ModelGatewayConfig) {
 
   const gatewayRuntime = createModelGatewayPluginRuntime({ runtime, config, logger })
 
+  // kernel 兼容治理：config 校验通过且装配成功后注册。
+  const unregisterManifest = (runtime.context as { manifests?: import('@elysia-ai/core').PluginManifestRegistry }).manifests?.register({
+    name: 'elysia-ai-model-gateway',
+    version: '0.2.0',
+    services: { provides: ['elysia.modelGateway'], consumes: ['elysia.runtime'] },
+  })
+
   registerElysiaService(ctx, {
     formalName: 'elysia.modelGateway',
     legacyName: 'elysia-ai-model-gateway',
@@ -219,5 +226,8 @@ export function apply(ctx: Context, config: ModelGatewayConfig) {
   })
 
   registerDebugCommands(ctx, gatewayRuntime.service, config)
-  ctx.on('dispose', () => gatewayRuntime.dispose())
+  ctx.on('dispose', () => {
+    unregisterManifest?.()
+    gatewayRuntime.dispose()
+  })
 }

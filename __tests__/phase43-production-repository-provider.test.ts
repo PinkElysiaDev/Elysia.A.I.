@@ -1,12 +1,12 @@
 
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from 'koishi'
+import { asCordisContext, type Context } from 'koishi'
 import { MemoryEventBus, type CoreEventMap, type MemoryEntry, type Bond } from '../packages/@elysia-ai/core/src/index.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { apply as applyMemory } from '../packages/elysia-ai-memory/src/index.js'
 import { apply as applyBond } from '../packages/elysia-ai-bond/src/index.js'
-import { MongoMemoryRepository, type MongoMemoryDocument } from '../packages/@elysia-ai/memory/src/index.js'
-import { MongoBondRepository, type MongoBondDocument } from '../packages/@elysia-ai/bond/src/index.js'
+import { MemoryMemoryRepository, MongoMemoryRepository, type MongoMemoryDocument } from '../packages/@elysia-ai/memory/src/index.js'
+import { MemoryBondRepository, MongoBondRepository, type MongoBondDocument } from '../packages/@elysia-ai/bond/src/index.js'
 import { DefaultModelGatewayService } from '../packages/@elysia-ai/model-gateway/src/index.js'
 import { apply as applyModelGateway } from '../packages/elysia-ai-model-gateway/src/index.js'
 import { createObservatoryPluginRuntime } from '../packages/@elysia-ai/observatory/src/index.js'
@@ -25,7 +25,7 @@ function createPluginContext() {
       return () => {}
     }),
   }
-  return { ctx: ctx as Context & Record<string, any>, disposers }
+  return { ctx: asCordisContext(ctx) as Context & Record<string, any>, disposers }
 }
 
 class FakeMongoCollection<TDocument extends { id: string }> {
@@ -131,16 +131,20 @@ describe('Phase 43 production repository/provider configuration', () => {
     expect(byLife).toHaveLength(1)
   })
 
-  it('top-level memory and bond fail fast when mongo repository is selected without repositoryFactory', () => {
+  it('top-level memory and bond fall back to in-memory repositories when mongo persistence is unavailable', () => {
     const { ctx } = createPluginContext()
     const runtime = createDefaultRuntime()
     ctx['elysia.runtime'] = runtime
 
-    expect(() => applyMemory(ctx, { enabled: true, contextLimit: 5, repository: { type: 'mongo' } } as any)).toThrow(/repositoryFactory/)
-    expect(ctx['elysia.memory']).toBeUndefined()
+    // 旧契约（repository.type='mongo' 无 repositoryFactory 即 fail fast）已随 elysia.persistence
+    // 架构移除：mongo 连接由 runtime 统一建立并经 elysia.persistence 提供；服务缺失时回退内存仓储。
+    applyMemory(ctx, { enabled: true, contextLimit: 5 } as any)
+    expect(ctx['elysia.memory']).toBeTruthy()
+    expect(ctx['elysia.memory'].repository).toBeInstanceOf(MemoryMemoryRepository)
 
-    expect(() => applyBond(ctx, { enabled: true, contextLimit: 5, repository: { type: 'mongo' } } as any)).toThrow(/repositoryFactory/)
-    expect(ctx['elysia.bond']).toBeUndefined()
+    applyBond(ctx, { enabled: true, contextLimit: 5 } as any)
+    expect(ctx['elysia.bond']).toBeTruthy()
+    expect(ctx['elysia.bond'].repository).toBeInstanceOf(MemoryBondRepository)
   })
 
   it('top-level memory and bond accept injected repository factories for production providers', () => {
@@ -169,11 +173,10 @@ describe('Phase 43 production repository/provider configuration', () => {
     expect(runtime.bondRepository).toBe(ctx['elysia.bond'].repository)
   })
 
-  it('model gateway supports provider registry config with apiKeyEnv and provider slots', () => {
-    vi.stubEnv('PHASE43_OPENAI_KEY', 'phase43-secret')
+  it('model gateway supports provider registry config with direct apiKey and provider slots', () => {
     const gateway = new DefaultModelGatewayService({
       providers: {
-        primary: { type: 'openai', model: 'gpt-4.1-mini', apiKeyEnv: 'PHASE43_OPENAI_KEY' },
+        primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'phase43-secret', baseURL: 'https://phase43.example' },
       },
       providerSlots: {
         chat: { provider: 'primary', model: 'gpt-4.1' },
@@ -183,22 +186,21 @@ describe('Phase 43 production repository/provider configuration', () => {
 
     const provider = gateway.getRegistry().resolveSlot('chat')
     expect(provider?.id).toBe('slot:chat')
-    expect(provider?.descriptor).toMatchObject({ type: 'openai', model: 'gpt-4.1' })
+    expect(provider?.descriptor).toMatchObject({ type: 'chat-completions', model: 'gpt-4.1' })
   })
 
-  it('model gateway fails fast for missing apiKeyEnv without leaking secret values', () => {
-    vi.stubEnv('PHASE43_MISSING_KEY', '')
+  it('model gateway fails fast for missing apiKey without leaking secret values', () => {
     const { ctx } = createPluginContext()
     const runtime = createDefaultRuntime()
     ctx['elysia.runtime'] = runtime
 
     expect(() => applyModelGateway(ctx, {
       providers: {
-        primary: { type: 'openai', model: 'gpt-4.1-mini', apiKeyEnv: 'PHASE43_MISSING_KEY' },
+        primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: '', baseURL: 'https://phase43.example' },
       },
       providerSlots: { chat: { provider: 'primary' } },
       defaultSlot: 'chat',
-    } as any)).toThrow(/PHASE43_MISSING_KEY/)
+    } as any)).toThrow(/requires apiKey/)
     expect(ctx['elysia.modelGateway']).toBeUndefined()
   })
 

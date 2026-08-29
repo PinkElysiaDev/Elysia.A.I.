@@ -190,3 +190,55 @@ describe('D1-3 MongoScheduledTaskRepository', () => {
     expect((await repo2.listDue(1000)).map((t) => t.id)).toEqual(['t1'])
   })
 })
+
+// ─────────────────────────────────────────────────
+// P0-3：runtime 的 Mongo 仓储接线（createMongoRuntimeRepositories + loadFromRepository）
+// ─────────────────────────────────────────────────
+
+import {
+  createDefaultRuntime,
+  createMongoRuntimeRepositories,
+  MONGO_PROJECTION_RULES_COLLECTION,
+  MONGO_SCHEDULED_TASKS_COLLECTION,
+} from '../packages/elysia-ai-runtime/src/index.js'
+
+describe('P0-3 createMongoRuntimeRepositories 接线', () => {
+  it('工厂在指定连接上建立两个独立集合的仓储', async () => {
+    const collections: Record<string, FaithfulMongoCollection<{ id: string }>> = {}
+    const connection = {
+      collection(name: string) {
+        return (collections[name] ??= new FaithfulMongoCollection())
+      },
+    } as never
+
+    const repositories = createMongoRuntimeRepositories(connection)
+    await repositories.ensureIndexes()
+
+    expect(Object.keys(collections).sort()).toEqual([
+      MONGO_PROJECTION_RULES_COLLECTION,
+      MONGO_SCHEDULED_TASKS_COLLECTION,
+    ])
+
+    // 两个仓储各自读写，互不串数据
+    await repositories.projectionRuleRepository.save(rule('r-wired', 'life-A'))
+    await repositories.scheduledTaskRepository.save(task('t-wired', { runAt: 1 }))
+    expect(await repositories.scheduledTaskRepository.getById('r-wired')).toBeNull()
+    expect(await repositories.projectionRuleRepository.getById('t-wired')).toBeNull()
+  })
+
+  it('runtime 使用 Mongo 规则仓储时 loadFromRepository 可恢复路由规则', async () => {
+    const collection = new FaithfulMongoCollection<MongoProjectionRuleDocument>()
+    await new MongoProjectionRuleRepository(collection).save(rule('r-restore', 'life-restore'))
+
+    const runtime = createDefaultRuntime({
+      projectionRuleRepository: new MongoProjectionRuleRepository(collection),
+    })
+    // load 之前规则只在仓储里，内存 registry 为空（路由不会命中）
+    expect(runtime.projectionRegistry.list().map((r) => r.id)).toEqual([])
+
+    await runtime.projectionRuleService.loadFromRepository()
+
+    expect(runtime.projectionRegistry.listEnabled().map((r) => r.id))
+      .toEqual(['r-restore'])
+  })
+})

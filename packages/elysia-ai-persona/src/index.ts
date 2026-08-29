@@ -27,6 +27,13 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-persona',
   serviceFormalName: 'elysia.persona',
   serviceLegacyName: 'elysia-ai-persona',
+  // kernel 兼容治理：声明身份/服务/阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-persona',
+    version: '0.2.0',
+    services: { provides: ['elysia.persona'], consumes: ['elysia.runtime'] },
+    configNamespace: 'persona',
+  },
   build({ runtime, config, logger }) {
     if (!runtime.personaRegistry) {
       logger.error('runtime persona registry not found; persona plugin cannot continue', undefined, {

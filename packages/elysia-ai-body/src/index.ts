@@ -1,5 +1,6 @@
 import { Context, Schema } from 'koishi'
 import type { BodyService } from '@elysia-ai/core'
+import { NS_DIALOGUE_OUTPUT, STAGE_SENDER } from '@elysia-ai/core'
 import type { Runtime } from 'koishi-plugin-elysia-ai-runtime'
 import { getRequiredElysiaService, registerElysiaService } from '@elysia-ai/shared'
 import { KoishiBodyAdapter } from './adapters/koishi/index.js'
@@ -76,6 +77,14 @@ export function apply(ctx: Context, config: Config) {
     },
   }
 
+  // kernel 兼容治理：sender 阶段钩子（Phase 2 落地，事件兜底先行）。
+  const unregisterManifest = runtime.context.manifests?.register({
+    name: 'elysia-ai-body',
+    version: '0.2.0',
+    services: { provides: ['elysia.body'], consumes: ['elysia.runtime'] },
+    stages: { hooks: ['sender'] },
+  })
+
   registerElysiaService(ctx, {
     formalName: 'elysia.body',
     legacyName: 'elysia-ai-body',
@@ -90,7 +99,8 @@ export function apply(ctx: Context, config: Config) {
   })
   adapter.registerListeners()
 
-  const disposeDialogueOutput = runtime.context.eventBus.on('dialogue.output.created', async (output) => {
+  // 发送逻辑：sender 阶段钩子与事件兜底两条路径共用。
+  const sendOutput = async (output: import('@elysia-ai/core').CoreEventMap['dialogue.output.created']): Promise<void> => {
     const { task, result } = output
 
     if (task.mode !== 'reply-now') {
@@ -134,7 +144,22 @@ export function apply(ctx: Context, config: Config) {
         channelId: sendTask.target.channelId,
       })
     }
-  })
+  }
+
+  // ── 装配：sender 阶段钩子优先（读共享上下文累积的输出），事件兜底 ──
+  const pipeline = runtime.context.pipeline
+  const disposeDialogueOutput = pipeline
+    ? pipeline.registerHook({
+        stage: STAGE_SENDER,
+        owner: 'elysia-ai-body',
+        async run(pctx) {
+          const outputs = pctx.read<import('@elysia-ai/core').CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+          for (const output of outputs) {
+            await sendOutput(output)
+          }
+        },
+      })
+    : runtime.context.eventBus.on('dialogue.output.created', (output) => sendOutput(output))
 
   logger.info('body adapter registered', {
     plugin: 'elysia-ai-body',

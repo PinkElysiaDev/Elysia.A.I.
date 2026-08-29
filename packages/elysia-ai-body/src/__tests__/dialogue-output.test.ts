@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from 'koishi-plugin-elysia-ai-runtime'
 import { apply } from '../index.js'
+import { NS_DIALOGUE_OUTPUT } from '@elysia-ai/core'
 
 function createContext(runtime: ReturnType<typeof createDefaultRuntime>) {
   const messageHandlers: Array<(session: any) => Promise<void> | void> = []
@@ -37,7 +39,7 @@ function createContext(runtime: ReturnType<typeof createDefaultRuntime>) {
     },
   }
 
-  return ctx
+  return asCordisContext(ctx)
 }
 
 describe('elysia-ai-body dialogue output', () => {
@@ -81,7 +83,8 @@ describe('elysia-ai-body dialogue output', () => {
       metadata: {},
     }
 
-    await runtime.context.eventBus.emit('dialogue.output.created', {
+    // 管线路径：输出写入共享上下文并驱动 sender 阶段（等价于旧裸事件发射）。
+    const outputPayload = {
       outputId: 'output-1',
       stimulusId: 'stimulus-1',
       content: result.output,
@@ -89,7 +92,13 @@ describe('elysia-ai-body dialogue output', () => {
       result,
       messages: result.messages,
       metadata: {},
+    }
+    const lifeContext = runtime.context.contexts!.create({
+      id: 'pctx-output-1',
+      core: { stimulus: { id: 'stimulus-x' } },
     })
+    lifeContext.write(NS_DIALOGUE_OUTPUT, [outputPayload])
+    await runtime.context.pipeline!.run(lifeContext, { stages: ['sender'] })
 
     expect(send).toHaveBeenCalledOnce()
     expect(send).toHaveBeenCalledWith('elysia reply')
@@ -133,7 +142,8 @@ describe('elysia-ai-body dialogue output', () => {
       metadata: {},
     }
 
-    await runtime.context.eventBus.emit('dialogue.output.created', {
+    // 管线路径：输出写入共享上下文并驱动 sender 阶段（等价于旧裸事件发射）。
+    const outputPayload = {
       outputId: 'output-1',
       stimulusId: 'stimulus-1',
       content: result.output,
@@ -141,7 +151,13 @@ describe('elysia-ai-body dialogue output', () => {
       result,
       messages: result.messages,
       metadata: {},
+    }
+    const lifeContext = runtime.context.contexts!.create({
+      id: 'pctx-output-2',
+      core: { stimulus: { id: 'stimulus-x' } },
     })
+    lifeContext.write(NS_DIALOGUE_OUTPUT, [outputPayload])
+    await runtime.context.pipeline!.run(lifeContext, { stages: ['sender'] })
 
     expect(send).not.toHaveBeenCalled()
   })
@@ -170,7 +186,8 @@ describe('elysia-ai-body dialogue output', () => {
       metadata: {},
     }
 
-    await runtime.context.eventBus.emit('dialogue.output.created', {
+    // 管线路径：输出写入共享上下文并驱动 sender 阶段（等价于旧裸事件发射）。
+    const outputPayload = {
       outputId: 'output-missing',
       stimulusId: 'missing-stimulus',
       content: result.output,
@@ -178,7 +195,13 @@ describe('elysia-ai-body dialogue output', () => {
       result,
       messages: result.messages,
       metadata: {},
+    }
+    const lifeContext = runtime.context.contexts!.create({
+      id: 'pctx-output-3',
+      core: { stimulus: { id: 'stimulus-x' } },
     })
+    lifeContext.write(NS_DIALOGUE_OUTPUT, [outputPayload])
+    await runtime.context.pipeline!.run(lifeContext, { stages: ['sender'] })
 
     expect(senderFailed).toHaveBeenCalledOnce()
     expect(senderFailed.mock.calls[0][0].task.target.sourceStimulusId).toBe('missing-stimulus')

@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type {
@@ -53,7 +54,7 @@ function createMockKoishiContext(runtime: Runtime) {
     },
   }
 
-  return ctx
+  return asCordisContext(ctx)
 }
 
 function installBehaviorPipeline(ctx: any) {

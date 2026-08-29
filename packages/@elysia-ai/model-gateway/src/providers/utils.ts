@@ -146,3 +146,18 @@ export function normalizeClaudeFinishReason(reason: unknown): string {
       return String(reason)
   }
 }
+
+/**
+ * Responses API 的 status 是响应生命周期状态（completed/in_progress/failed/
+ * incomplete），不是停止原因；截断/过滤检测必须看 incomplete_details.reason
+ * 才能映射到统一词表（P1-11）。
+ */
+export function normalizeResponsesFinishReason(status: unknown, incompleteReason?: unknown): string {
+  if (status === 'incomplete') {
+    if (incompleteReason === 'content_filter') return 'content_filter'
+    if (incompleteReason === 'max_output_tokens') return 'length'
+    return 'unknown'
+  }
+  if (status === 'completed') return 'stop'
+  return 'unknown'
+}

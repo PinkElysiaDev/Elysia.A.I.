@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 export default defineConfig({
   test: {
     include: [
+      'examples/*/src/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
       'packages/*/src/__tests__/**/*.ts',
       'packages/@elysia-ai/*/src/**/*.test.ts',
@@ -14,6 +15,12 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
     alias: {
+      '@elysia-ai/kernel': resolve(__dirname, 'packages/@elysia-ai/kernel/src/index.ts'),
+      '@elysia-ai/canonical': resolve(__dirname, 'packages/@elysia-ai/canonical/src/index.ts'),
+      '@elysia-ai/protocol-openai': resolve(__dirname, 'packages/@elysia-ai/protocol-openai/src/index.ts'),
+      '@elysia-ai/protocol-anthropic': resolve(__dirname, 'packages/@elysia-ai/protocol-anthropic/src/index.ts'),
+      '@elysia-ai/protocol-gemini': resolve(__dirname, 'packages/@elysia-ai/protocol-gemini/src/index.ts'),
+      '@elysia-ai/protocol-responses': resolve(__dirname, 'packages/@elysia-ai/protocol-responses/src/index.ts'),
       '@elysia-ai/core': resolve(__dirname, 'packages/@elysia-ai/core/src/index.ts'),
       '@elysia-ai/shared': resolve(__dirname, 'packages/@elysia-ai/shared/src/index.ts'),
       '@elysia-ai/behavior': resolve(__dirname, 'packages/@elysia-ai/behavior/src/index.ts'),

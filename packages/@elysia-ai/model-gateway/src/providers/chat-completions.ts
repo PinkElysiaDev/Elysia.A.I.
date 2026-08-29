@@ -1,74 +1,7 @@
-import type { DialogueMessage } from '@elysia-ai/core'
+import { decodeChatCompletionsResponse, encodeChatCompletionsRequest, extractMessageText } from '@elysia-ai/protocol-openai'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
-import { ProviderError } from './types.js'
-
-function toOpenAIMessages(messages: DialogueMessage[]) {
-  return messages.map((m) => ({
-    role: m.role as string,
-    content: m.content,
-    ...(m.name ? { name: m.name } : {}),
-  }))
-}
-
-function isRetryableStatus(status: number | undefined): boolean {
-  return status === undefined || status === 429 || status >= 500
-}
-
-async function readErrorBody(res: Response): Promise<unknown> {
-  const text = await res.text().catch(() => '')
-  if (!text) return ''
-  try {
-    return JSON.parse(text)
-  } catch {
-    return text
-  }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number | undefined,
-  providerId: string,
-): Promise<Response> {
-  if (!timeoutMs || timeoutMs <= 0) return fetch(url, init)
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    })
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ProviderError(
-        `Provider "${providerId}" request timed out after ${timeoutMs}ms`,
-        providerId,
-        undefined,
-        undefined,
-        {
-          retryable: true,
-          code: 'timeout',
-          cause: error,
-        },
-      )
-    }
-    throw new ProviderError(
-      `Provider "${providerId}" request failed: ${error instanceof Error ? error.message : String(error)}`,
-      providerId,
-      undefined,
-      undefined,
-      {
-        retryable: true,
-        code: 'network-error',
-        cause: error,
-      },
-    )
-  } finally {
-    clearTimeout(timer)
-  }
-}
+import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody } from './utils.js'
+import { toCanonicalRequest } from './canonical-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -95,17 +28,15 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const mt = request.maxTokens ?? maxTokens
-      const temp = request.temperature ?? temperature
+      const canonical = toCanonicalRequest(request, {
+        model,
+        maxTokens: request.maxTokens ?? maxTokens,
+        temperature: request.temperature ?? temperature,
+      })
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/chat/completions`
-      const body = {
-        model,
-        messages: toOpenAIMessages(request.messages),
-        max_tokens: mt,
-        temperature: temp,
-      }
+      const body = encodeChatCompletionsRequest(canonical)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -118,37 +49,20 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
       }, timeout, config.id)
 
       if (!res.ok) {
-        const body = await readErrorBody(res)
-        throw new ProviderError(
-          `Chat Completions API failed: ${res.status} ${res.statusText}`,
-          config.id,
-          res.status,
-          body,
-          {
-            retryable: isRetryableStatus(res.status),
-            code: `http-${res.status}`,
-          },
-        )
+        const responseBody = await readResponseBody(res)
+        throw createHttpProviderError('Chat Completions', config.id, res, responseBody)
       }
 
       const json = await res.json() as any
 
       if (json.error) {
-        throw new ProviderError(
-          `Chat Completions API error: ${json.error.message ?? JSON.stringify(json.error)}`,
-          config.id,
-          undefined,
-          json,
-          {
-            retryable: true,
-            code: 'api-error',
-          },
-        )
+        throw createProviderApiError('Chat Completions', config.id, json)
       }
 
-      const choice = json.choices?.[0]
-      const output = choice?.message?.content ?? ''
-      const finishReason = choice?.finish_reason ?? 'unknown'
+      const canonicalResponse = decodeChatCompletionsResponse(json)
+      const output = extractMessageText(canonicalResponse)
+      const finishReason = canonicalResponse.stop_reason ?? 'unknown'
+      const latencyMs = Date.now() - startedAt
 
       return {
         output,
@@ -163,16 +77,15 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: json.usage?.prompt_tokens,
-          outputTokens: json.usage?.completion_tokens,
-          totalTokens: json.usage?.total_tokens,
+          inputTokens: canonicalResponse.usage?.input_tokens,
+          outputTokens: canonicalResponse.usage?.output_tokens,
+          totalTokens: canonicalResponse.usage?.total_tokens,
         },
         finishReason,
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
         metadata: {
-          responseId: json.id,
-          created: json.created,
-          latencyMs: Date.now() - startedAt,
+          responseId: canonicalResponse.id,
+          latencyMs,
         },
       }
     },

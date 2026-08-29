@@ -21,7 +21,7 @@ function makeProviderResponse(providerId: string, output = 'ok', latencyMs = 7) 
     messages: [{ role: 'assistant' as const, content: output }],
     provider: {
       id: providerId,
-      type: 'openai-compatible' as const,
+      type: 'chat-completions' as const,
       model: 'runtime-model',
     },
     usage: {
@@ -57,16 +57,16 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('successful gateway response should include route and latency diagnostics', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -83,7 +83,7 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
     expect(diagnostics.route).toMatchObject({
       slot: 'main',
       providerId: 'slot:main',
-      providerType: 'openai-compatible',
+      providerType: 'chat-completions',
       model: 'runtime-model',
       reason: 'slot-matched',
     })
@@ -100,16 +100,16 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('retry success should record all failed and successful attempts', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 2,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -244,16 +244,16 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('gateway should expose provider health snapshots after success and failure', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 1,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -293,17 +293,19 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('circuit breaker should open after consecutive failures and skip provider execution', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      circuitBreaker: { enabled: true, failureThreshold: 2, cooldownMs: 30000 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableCircuitBreaker: true,
+      failureThreshold: 2,
+      cooldownMs: 30000,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -351,17 +353,19 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
 
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      circuitBreaker: { enabled: true, failureThreshold: 1, cooldownMs: 1000 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableCircuitBreaker: true,
+      failureThreshold: 1,
+      cooldownMs: 1000,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -411,17 +415,19 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
 
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      circuitBreaker: { enabled: true, failureThreshold: 1, cooldownMs: 1000 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableCircuitBreaker: true,
+      failureThreshold: 1,
+      cooldownMs: 1000,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -460,27 +466,21 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('primary slot retryable failure should fallback to secondary slot', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableFallback: true,
+      slots: {
+        reasoning: ['fast'],
       },
     })
 
@@ -533,28 +533,24 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('circuit-open primary slot should fallback without executing primary again', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      circuitBreaker: { enabled: true, failureThreshold: 1, cooldownMs: 30000 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableCircuitBreaker: true,
+      failureThreshold: 1,
+      cooldownMs: 30000,
+      enableFallback: true,
+      slots: {
+        reasoning: ['fast'],
       },
     })
 
@@ -604,27 +600,21 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('non-retryable primary error should not fallback by default', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableFallback: true,
+      slots: {
+        reasoning: ['fast'],
       },
     })
 
@@ -659,33 +649,23 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
 
   it('all fallback slots failed should throw aggregate ProviderError', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        balanced: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'balanced-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        balanced: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        balanced: { provider: 'balanced', model: 'balanced-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['balanced', 'fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableFallback: true,
+      slots: {
+        reasoning: ['balanced', 'fast'],
       },
     })
 
@@ -724,16 +704,16 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
   it('gateway.failed event should expose diagnostics metadata', async () => {
     const recorder = createEventBusRecorder()
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'runtime-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'runtime-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     }, recorder.bus as any)
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -760,7 +740,7 @@ describe('Phase 31 Model Gateway Runtime Governance', () => {
     expect(diagnostics.route).toMatchObject({
       slot: 'main',
       providerId: 'slot:main',
-      providerType: 'openai-compatible',
+      providerType: 'chat-completions',
       model: 'runtime-model',
       reason: 'slot-matched',
     })

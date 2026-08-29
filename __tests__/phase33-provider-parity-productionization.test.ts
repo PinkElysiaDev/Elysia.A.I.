@@ -14,7 +14,7 @@ import {
   ProviderError,
   type GatewayDiagnostics,
 } from '../packages/@elysia-ai/model-gateway/src/index.js'
-import { createClaudeProvider } from '../packages/@elysia-ai/model-gateway/src/providers/claude.js'
+import { createAnthropicProvider } from '../packages/@elysia-ai/model-gateway/src/providers/anthropic.js'
 import { createGeminiProvider } from '../packages/@elysia-ai/model-gateway/src/providers/gemini.js'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -59,7 +59,7 @@ describe('Phase 33 Provider Parity Productionization', () => {
       id: 'slot:gemini',
       type: 'gemini',
       apiKey: 'gemini-key',
-      endpoint: 'https://gemini.example/v1beta/',
+      baseURL: 'https://gemini.example',
       model: 'gemini-1.5-pro',
       maxTokens: 256,
       temperature: 0.3,
@@ -132,11 +132,11 @@ describe('Phase 33 Provider Parity Productionization', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const provider = createClaudeProvider({
+    const provider = createAnthropicProvider({
       id: 'slot:claude',
-      type: 'claude',
+      type: 'anthropic',
       apiKey: 'claude-key',
-      endpoint: 'https://claude.example/v1/',
+      baseURL: 'https://claude.example',
       model: 'claude-3-5-sonnet',
       maxTokens: 128,
       temperature: 0.2,
@@ -161,20 +161,21 @@ describe('Phase 33 Provider Parity Productionization', () => {
     })
 
     const body = JSON.parse(init.body as string)
+    // anthropic 协议现在以 content blocks 编码消息内容（与 protocol-anthropic 契约一致）
     expect(body).toMatchObject({
       model: 'claude-3-5-sonnet',
       max_tokens: 128,
       temperature: 0.2,
       system: 'system prompt',
       messages: [
-        { role: 'user', content: 'hello' },
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
       ],
     })
 
     expect(result.output).toBe('Claude ok')
     expect(result.provider).toMatchObject({
       id: 'slot:claude',
-      type: 'claude',
+      type: 'anthropic',
       model: 'claude-3-5-sonnet-20241022',
       endpoint: 'https://claude.example/v1',
     })
@@ -198,7 +199,7 @@ describe('Phase 33 Provider Parity Productionization', () => {
       id: 'slot:gemini',
       type: 'gemini',
       apiKey: 'gemini-key',
-      endpoint: 'https://gemini.example/v1beta',
+      baseURL: 'https://gemini.example',
       model: 'gemini-1.5-pro',
     })
 
@@ -236,11 +237,11 @@ describe('Phase 33 Provider Parity Productionization', () => {
   })
 
   it('claude provider should classify retryable overload and non-retryable auth errors', async () => {
-    const provider = createClaudeProvider({
+    const provider = createAnthropicProvider({
       id: 'slot:claude',
-      type: 'claude',
+      type: 'anthropic',
       apiKey: 'claude-key',
-      endpoint: 'https://claude.example/v1',
+      baseURL: 'https://claude.example',
       model: 'claude-3-5-sonnet',
     })
 
@@ -309,22 +310,18 @@ describe('Phase 33 Provider Parity Productionization', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        gemini: {
-          type: 'gemini',
-          apiKey: 'gemini-key',
-          endpoint: 'https://gemini.example/v1beta',
-          model: 'gemini-1.5-pro',
-        },
-        claude: {
-          type: 'claude',
-          apiKey: 'claude-key',
-          endpoint: 'https://claude.example/v1',
-          model: 'claude-3-5-sonnet',
-        },
+      providers: {
+        gemini: { type: 'gemini', apiKey: 'gemini-key', baseURL: 'https://gemini.example' },
+        claude: { type: 'anthropic', apiKey: 'claude-key', baseURL: 'https://claude.example' },
+      },
+      providerSlots: {
+        gemini: { provider: 'gemini', model: 'gemini-1.5-pro' },
+        claude: { provider: 'claude', model: 'claude-3-5-sonnet' },
       },
       defaultSlot: 'gemini',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const geminiResult = await gateway.execute({
@@ -360,7 +357,7 @@ describe('Phase 33 Provider Parity Productionization', () => {
     expect(claudeDiagnostics.route).toMatchObject({
       slot: 'claude',
       providerId: 'slot:claude',
-      providerType: 'claude',
+      providerType: 'anthropic',
       model: 'claude-3-5-sonnet',
     })
     expect(claudeDiagnostics.attempts[0]).toMatchObject({
@@ -404,34 +401,24 @@ describe('Phase 33 Provider Parity Productionization', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        gemini: {
-          type: 'gemini',
-          apiKey: 'gemini-key',
-          endpoint: 'https://gemini.example/v1beta',
-          model: 'gemini-1.5-pro',
-        },
-        claude: {
-          type: 'claude',
-          apiKey: 'claude-key',
-          endpoint: 'https://claude.example/v1',
-          model: 'claude-3-5-sonnet',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'fast-key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        gemini: { type: 'gemini', apiKey: 'gemini-key', baseURL: 'https://gemini.example' },
+        claude: { type: 'anthropic', apiKey: 'claude-key', baseURL: 'https://claude.example' },
+        fast: { type: 'chat-completions', apiKey: 'fast-key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        gemini: { provider: 'gemini', model: 'gemini-1.5-pro' },
+        claude: { provider: 'claude', model: 'claude-3-5-sonnet' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'gemini',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      fallback: {
-        enabled: true,
-        slots: {
-          gemini: ['fast'],
-          claude: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableFallback: true,
+      slots: {
+        gemini: ['fast'],
+        claude: ['fast'],
       },
     })
 

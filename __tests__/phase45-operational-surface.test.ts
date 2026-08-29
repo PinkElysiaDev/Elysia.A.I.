@@ -8,11 +8,28 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { MemoryEventBus, type CoreEventMap } from '../packages/@elysia-ai/core/src/index.js'
 import { DefaultObservatoryService } from '../packages/@elysia-ai/observatory/src/index.js'
 import { apply, runElysiaPreflight } from '../packages/elysia-ai-observatory/src/index.js'
 import { preflightModelGatewayConfig } from '../packages/elysia-ai-model-gateway/src/index.js'
-import { preflightMemoryConfig } from '../packages/elysia-ai-memory/src/index.js'
+import { createPreflightResult, issue, type PreflightResult } from '../packages/@elysia-ai/shared/src/index.js'
+
+/**
+ * 宿主提供的 memory preflight 回调（原 preflightMemoryConfig 导出已随 repository 配置
+ * 移至 elysia.persistence 架构而删除）：runElysiaPreflight 只接收回调，
+ * 这里按原契约模拟"未配置持久化时默认内存仓储降级"的 warning。
+ */
+function preflightMemoryConfigLike(): PreflightResult {
+  return createPreflightResult([
+    issue(
+      'elysia-ai-memory',
+      'memory.repository.memory-default',
+      'warning',
+      'memory repository falls back to in-memory storage; configure elysia.persistence for production',
+    ),
+  ], { plugin: 'elysia-ai-memory' })
+}
 
 type CommandAction = (...args: any[]) => unknown
 
@@ -52,7 +69,7 @@ function createCommandRecordingContext() {
     },
   }
 
-  return { ctx, commands, eventBus }
+  return { ctx: asCordisContext(ctx), commands, eventBus }
 }
 
 function runCommand(commands: Map<string, RegisteredCommand>, name: string, ...args: any[]): string {
@@ -112,9 +129,10 @@ describe('Phase 45 Operational Surface', () => {
     const invalidGateway = preflightModelGatewayConfig({
       providers: {
         prod: {
-          type: 'openai',
+          type: 'chat-completions',
           model: 'gpt-production',
           apiKey: 'sk-live-secret',
+          baseURL: 'https://prod.example',
         },
       },
       providerSlots: {
@@ -130,7 +148,7 @@ describe('Phase 45 Operational Surface', () => {
     })
     expect(JSON.stringify(invalidGateway)).not.toContain('sk-live-secret')
 
-    const localMemory = preflightMemoryConfig({} as any)
+    const localMemory = preflightMemoryConfigLike()
     expect(localMemory.ok).toBe(true)
     expect(localMemory.warnings.some((warning) => warning.code === 'memory.repository.memory-default')).toBe(true)
 
@@ -188,7 +206,7 @@ describe('Phase 45 Operational Surface', () => {
     expect(repositoryStatus).toContain('"memory":1')
 
     const preflight = runCommand(commands, 'elysia.preflight', {}, {
-      memory: { preflight: () => preflightMemoryConfig({} as any) },
+      memory: { preflight: preflightMemoryConfigLike },
     })
     expect(preflight).toContain('Elysia Preflight: ok')
     expect(preflight).toContain('memory.repository.memory-default')

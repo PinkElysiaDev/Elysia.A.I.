@@ -1,17 +1,16 @@
 
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from 'koishi'
+import { asCordisContext, type Context } from 'koishi'
 import { MemoryEventBus, type Bond, type CoreEventMap, type MemoryEntry } from '../packages/@elysia-ai/core/src/index.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
+import { createRuntimeStateRepository } from '../packages/elysia-ai-runtime/src/store/runtime-state-repository.js'
 import {
   apply as applyMemory,
   createMongoMemoryRepositoryFactory,
-  validateMemoryRepositoryConfig,
 } from '../packages/elysia-ai-memory/src/index.js'
 import {
   apply as applyBond,
   createMongoBondRepositoryFactory,
-  validateBondRepositoryConfig,
 } from '../packages/elysia-ai-bond/src/index.js'
 import {
   apply as applyModelGateway,
@@ -37,7 +36,7 @@ function createPluginContext() {
       return () => {}
     }),
   }
-  return { ctx: ctx as Context & Record<string, any>, disposers }
+  return { ctx: asCordisContext(ctx) as Context & Record<string, any>, disposers }
 }
 
 class FakeMongoCollection<TDocument extends { id: string }> {
@@ -154,11 +153,30 @@ describe('Phase 44 production readiness gates', () => {
     expect(bondCollection.closed).toBe(false)
   })
 
-  it('repository validation exposes stable fail-fast errors', () => {
-    expect(() => validateMemoryRepositoryConfig({ enabled: true, contextLimit: 5, repository: { type: 'mongo' } } as any)).toThrow(/repositoryFactory/)
-    expect(() => validateBondRepositoryConfig({ enabled: true, contextLimit: 5, repository: { type: 'mongo' } } as any)).toThrow(/repositoryFactory/)
-    expect(() => validateMemoryRepositoryConfig({ enabled: true, contextLimit: 5, repository: { type: 'memory' } } as any)).not.toThrow()
-    expect(() => validateBondRepositoryConfig({ enabled: true, contextLimit: 5, repository: { type: 'memory' } } as any)).not.toThrow()
+  it('repository validation exposes stable fail-fast errors', async () => {
+    const logger = createLogger()
+
+    // 旧契约（validateMemoryRepositoryConfig/validateBondRepositoryConfig）已随 elysia.persistence
+    // 架构移除：mongo fail-fast 语义移至 runtime 层的 state repository 配置。
+    await expect(createRuntimeStateRepository(
+      { stateRepository: 'mongo', failFast: true },
+      logger,
+    )).rejects.toThrow(/requires uri/)
+
+    await expect(createRuntimeStateRepository(
+      { stateRepository: 'mongo' },
+      logger,
+    )).resolves.toBeTypeOf('object')
+
+    await expect(createRuntimeStateRepository(
+      { stateRepository: 'memory' },
+      logger,
+    )).resolves.toBeTypeOf('object')
+
+    await expect(createRuntimeStateRepository(
+      { stateRepository: 'redis' as any },
+      logger,
+    )).rejects.toThrow(/Unsupported runtime state repository type/)
   })
 
   it('model-gateway validation catches production config errors without leaking secret values', () => {
@@ -167,23 +185,27 @@ describe('Phase 44 production readiness gates', () => {
     })).toThrow(/provider "primary" has unknown type/)
 
     expect(() => validateModelGatewayConfig({
-      providers: { primary: { type: 'openai', model: 'gpt-4.1-mini' } },
-    })).toThrow(/requires apiKey or apiKeyEnv/)
+      providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini' } },
+    })).toThrow(/requires apiKey/)
 
     expect(() => validateModelGatewayConfig({
-      providers: { primary: { type: 'openai', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value' } },
+      providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value' } },
+    })).toThrow(/requires baseURL/)
+
+    expect(() => validateModelGatewayConfig({
+      providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value', baseURL: 'https://primary.example' } },
       providerSlots: { chat: { provider: 'missing' } },
     })).toThrow(/unknown provider "missing"/)
 
     expect(() => validateModelGatewayConfig({
-      providers: { primary: { type: 'openai', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value' } },
+      providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value', baseURL: 'https://primary.example' } },
       providerSlots: { chat: { provider: 'primary' } },
-      fallback: { enabled: true, slots: { chat: ['missing-fallback'] } },
+      slots: { chat: ['missing-fallback'] },
     })).toThrow(/fallback slot "missing-fallback"/)
 
     try {
       validateModelGatewayConfig({
-        providers: { primary: { type: 'openai', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value' } },
+        providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value', baseURL: 'https://primary.example' } },
         providerSlots: { chat: { provider: 'missing' } },
       })
     } catch (error) {
@@ -196,7 +218,7 @@ describe('Phase 44 production readiness gates', () => {
     ctx['elysia.runtime'] = createDefaultRuntime()
 
     expect(() => applyModelGateway(ctx, {
-      providers: { primary: { type: 'openai', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value' } },
+      providers: { primary: { type: 'chat-completions', model: 'gpt-4.1-mini', apiKey: 'sk-secret-value', baseURL: 'https://primary.example' } },
       providerSlots: { chat: { provider: 'missing' } },
     } as any)).toThrow(/unknown provider "missing"/)
     expect(ctx['elysia.modelGateway']).toBeUndefined()

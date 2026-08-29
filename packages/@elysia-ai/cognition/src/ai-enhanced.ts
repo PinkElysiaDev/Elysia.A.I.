@@ -14,10 +14,25 @@ import { buildReason, buildSummary } from './reason.js'
 // Continuity 估算
 // ─────────────────────────────────────────────────
 
+function tokenizeForContinuity(text: string): string[] {
+  const tokens: string[] = []
+  const asciiWords = text.match(/[a-z0-9]{2,}/gi) ?? []
+  for (const word of asciiWords) tokens.push(word.toLowerCase())
+
+  // 中文无空格分词：用相邻二字作重叠 token，否则整句被当成一个词，
+  // 只有完全相同的上一句才会命中，连续性对中文主路径恒为 0。
+  const cjk = text.replace(/[^㐀-鿿]/g, '')
+  for (let i = 0; i < cjk.length - 1 && tokens.length < 16; i++) {
+    tokens.push(cjk.slice(i, i + 2))
+  }
+
+  return tokens.slice(0, 16)
+}
+
 function estimateContinuity(text: string, recentConversation: ConversationEntry[]): number {
   if (recentConversation.length === 0) return 0
 
-  const normalized = text.trim().toLowerCase()
+  const normalized = text.trim()
   if (!normalized) return 0
 
   const recentText = recentConversation
@@ -25,10 +40,7 @@ function estimateContinuity(text: string, recentConversation: ConversationEntry[
     .map((entry) => entry.content.toLowerCase())
     .join('\n')
 
-  const keywords = normalized
-    .split(/\s+/)
-    .filter((word) => word.length >= 2)
-    .slice(0, 12)
+  const keywords = tokenizeForContinuity(normalized)
 
   if (keywords.length === 0) return 0.2
 

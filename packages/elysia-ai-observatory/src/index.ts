@@ -2,6 +2,8 @@ import { Schema, type Context } from 'koishi'
 import { createObservatoryPluginRuntime } from '@elysia-ai/observatory'
 import type { Config as ObservatoryConfig } from '@elysia-ai/observatory'
 import type { CoreEventMap, EventBus } from '@elysia-ai/core'
+import { ELYSIA_SERVICES } from '@elysia-ai/core'
+import type { TraceSpan } from '@elysia-ai/core'
 import { combinePreflightResults, createPreflightResult, getOptionalElysiaService, getRequiredElysiaService, issue, registerElysiaService, type PreflightResult } from '@elysia-ai/shared'
 export * from '@elysia-ai/observatory'
 
@@ -27,6 +29,7 @@ type DiagnosticsLike = {
 type ObservatoryLike = DiagnosticsLike & {
   getSnapshot?: () => unknown
   getOperationalSnapshot?: () => unknown
+  getRecentTraces?: (options?: { stimulusId?: string, limit?: number }) => Array<{ stimulusId: string, kind: string, lifeId?: string, root: unknown, events: unknown[], recordedAt: number }>
   service?: { getOperationalSnapshot?: () => unknown, getRepositoryAnalytics?: () => unknown, getGatewayAnalytics?: () => unknown }
 }
 
@@ -35,25 +38,13 @@ function getService<T>(ctx: Context, formalName: string, legacyName?: string): T
 }
 
 function formatLoadedStatus(ctx: Context): string {
-  const services = [
-    ['runtime', 'elysia.runtime', 'elysia-ai-runtime'],
-    ['modelGateway', 'elysia.modelGateway', 'elysia-ai-model-gateway'],
-    ['brain', 'elysia.brain', 'elysia-ai-brain'],
-    ['dialogue', 'elysia.dialogue', 'elysia-ai-dialogue'],
-    ['behavior', 'elysia.behavior', 'elysia-ai-behavior'],
-    ['memory', 'elysia.memory', 'elysia-ai-memory'],
-    ['bond', 'elysia.bond', 'elysia-ai-bond'],
-    ['perception', 'elysia.perception', 'elysia-ai-perception'],
-    ['cognition', 'elysia.cognition', 'elysia-ai-cognition'],
-    ['homeostasis', 'elysia.homeostasis', 'elysia-ai-homeostasis'],
-    ['persona', 'elysia.persona', 'elysia-ai-persona'],
-    ['observatory', 'elysia.observatory', 'elysia-ai-observatory'],
-    ['body', 'elysia.body', 'elysia-ai-body'],
-  ] as const
+  // 单一事实来源：@elysia-ai/core 的 ELYSIA_SERVICES 常量表
+  // （新增服务/legacy 别名不再需要同步维护此处的硬编码列表）。
+  const services = ELYSIA_SERVICES
 
   const lines = ['Elysia A.I. Status']
   let loadedCount = 0
-  for (const [label, formalName, legacyName] of services) {
+  for (const { layer: label, formalName, legacyName } of services) {
     const service = getService<DiagnosticsLike>(ctx, formalName, legacyName)
     if (service) loadedCount++
     const diagnostics = service?.getDiagnostics?.()
@@ -134,6 +125,31 @@ function registerOperationalCommands(ctx: Context) {
   command.call(ctx, 'elysia.repository.status', 'Elysia A.I. repository status', { authority: 3 })
     .action(() => formatRepositoryStatus(ctx))
 
+  // 管线 trace 查询：span 树缩进展示（阶段耗时/钩子归属）。
+  const formatSpan = (span: TraceSpan, depth = 0): string => {
+    const duration = span.endedAt !== undefined ? ` (${span.endedAt - span.startedAt}ms)` : ''
+    const error = span.error ? ` [error: ${span.error}]` : ''
+    const line = `${'  '.repeat(depth)}- ${span.name}${duration}${error}`
+    const children = (span.children ?? []).map((child) => formatSpan(child, depth + 1))
+    return [line, ...children].join('\n')
+  }
+
+  command.call(ctx, 'elysia.trace.recent [stimulusId]', 'Elysia A.I. recent pipeline traces', { authority: 3 })
+    .action((_argv: unknown, stimulusId?: string) => {
+      const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory', 'elysia-ai-observatory')
+      const traces = observatory?.getRecentTraces?.(stimulusId ? { stimulusId } : {}) ?? []
+      if (traces.length === 0) return stimulusId ? `No traces for stimulus ${stimulusId}.` : 'No recent traces.'
+      return traces.map((trace) => {
+        const header = `[${trace.kind}] stimulus=${trace.stimulusId}${trace.lifeId ? ` life=${trace.lifeId}` : ''} at ${new Date(trace.recordedAt).toISOString()}`
+        const tree = formatSpan(trace.root as TraceSpan)
+        const events = (trace.events ?? []).map((event) => {
+          const record = event as { kind?: string, namespace?: string, reason?: string }
+          return `  . ${record.kind}${record.namespace ? ` ${record.namespace}` : ''}${record.reason ? ` (${record.reason})` : ''}`
+        })
+        return [header, tree, ...events].join('\n')
+      }).join('\n\n')
+    })
+
   command.call(ctx, 'elysia.preflight', 'Elysia A.I. config preflight', { authority: 4 })
     .action((_argv: unknown, configs?: Parameters<typeof runElysiaPreflight>[0]) => formatPreflightResult(runElysiaPreflight(configs)))
 }
@@ -153,6 +169,13 @@ export function apply(ctx: Context, config: ObservatoryConfig) {
   const observatoryRuntime = createObservatoryPluginRuntime({ runtime, config, logger })
   if (!observatoryRuntime) return
 
+  // kernel 兼容治理：装配成功后注册 manifest，dispose 注销。
+  const unregisterManifest = (runtime.context as { manifests?: import('@elysia-ai/core').PluginManifestRegistry }).manifests?.register({
+    name: 'elysia-ai-observatory',
+    version: '0.2.0',
+    services: { provides: ['elysia.observatory'], consumes: ['elysia.runtime'] },
+  })
+
   registerElysiaService(ctx, {
     formalName: 'elysia.observatory',
     legacyName: 'elysia-ai-observatory',
@@ -163,5 +186,8 @@ export function apply(ctx: Context, config: ObservatoryConfig) {
 
   registerOperationalCommands(ctx)
 
-  ctx.on('dispose', () => observatoryRuntime.dispose())
+  ctx.on('dispose', () => {
+    unregisterManifest?.()
+    observatoryRuntime.dispose()
+  })
 }

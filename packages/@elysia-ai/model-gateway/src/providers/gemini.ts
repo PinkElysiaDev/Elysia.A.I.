@@ -1,4 +1,4 @@
-import type { DialogueMessage } from '@elysia-ai/core'
+import { decodeGenerateContentResponse, encodeGenerateContentRequest, extractMessageText } from '@elysia-ai/protocol-gemini'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
 import {
   createHttpProviderError,
@@ -7,26 +7,7 @@ import {
   normalizeGeminiFinishReason,
   readResponseBody,
 } from './utils.js'
-
-function toGeminiContents(messages: DialogueMessage[]) {
-  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = []
-
-  for (const m of messages) {
-    if (m.role === 'system') continue
-    contents.push({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })
-  }
-
-  return contents
-}
-
-function extractSystemInstruction(messages: DialogueMessage[]): string | undefined {
-  const systemMessages = messages.filter((m) => m.role === 'system')
-  if (systemMessages.length === 0) return undefined
-  return systemMessages.map((m) => m.content).join('\n')
-}
+import { toCanonicalRequest } from './canonical-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1beta'
 
@@ -53,28 +34,15 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const mt = request.maxTokens ?? maxTokens
-      const temp = request.temperature ?? temperature
+      const canonical = toCanonicalRequest(request, {
+        model,
+        maxTokens: request.maxTokens ?? maxTokens,
+        temperature: request.temperature ?? temperature,
+      })
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/models/${model}:generateContent?key=${config.apiKey}`
-
-      const systemInstruction = extractSystemInstruction(request.messages)
-      const contents = toGeminiContents(request.messages)
-
-      const body: Record<string, unknown> = {
-        contents,
-        generationConfig: {
-          maxOutputTokens: mt,
-          temperature: temp,
-        },
-      }
-
-      if (systemInstruction) {
-        body.systemInstruction = {
-          parts: [{ text: systemInstruction }],
-        }
-      }
+      const body = encodeGenerateContentRequest(canonical)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -94,11 +62,9 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
         throw createProviderApiError('Gemini', config.id, json, json.error.code)
       }
 
-      const candidate = json.candidates?.[0]
-      const output = candidate?.content?.parts
-        ?.map((p: any) => p.text ?? '')
-        .join('') ?? ''
-      const finishReason = normalizeGeminiFinishReason(candidate?.finishReason)
+      const canonicalResponse = decodeGenerateContentResponse(json)
+      const output = extractMessageText(canonicalResponse)
+      const finishReason = normalizeGeminiFinishReason(canonicalResponse.stop_reason)
       const latencyMs = Date.now() - startedAt
 
       return {
@@ -114,14 +80,14 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: json.usageMetadata?.promptTokenCount,
-          outputTokens: json.usageMetadata?.candidatesTokenCount,
-          totalTokens: json.usageMetadata?.totalTokenCount,
+          inputTokens: canonicalResponse.usage?.input_tokens,
+          outputTokens: canonicalResponse.usage?.output_tokens,
+          totalTokens: canonicalResponse.usage?.total_tokens,
         },
         finishReason,
         latencyMs,
         metadata: {
-          modelVersion: json.modelVersion,
+          modelVersion: canonicalResponse.model,
           providerLatencyMs: latencyMs,
           latencyMs,
         },

@@ -2,7 +2,7 @@ import { Schema } from 'koishi'
 import { createBehaviorPluginRuntime } from '@elysia-ai/behavior'
 import type { Config as BehaviorConfig } from '@elysia-ai/behavior'
 import type { BehaviorExecutionService, BehaviorService, CoreEventMap, EventBus, Persona } from '@elysia-ai/core'
-import { createElysiaPlugin } from '@elysia-ai/shared'
+import { createElysiaPlugin, getOptionalElysiaService } from '@elysia-ai/shared'
 export * from '@elysia-ai/behavior'
 
 type BehaviorTimingConfig = Pick<BehaviorConfig, 'directWindowMs' | 'userBufferedWindowMs' | 'threadBufferedWindowMs' | 'habitatBufferedWindowMs'>
@@ -42,12 +42,29 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-behavior',
   serviceFormalName: 'elysia.behavior',
   serviceLegacyName: 'elysia-ai-behavior',
-  build({ runtime, config, logger }) {
+  // kernel 兼容治理：声明身份/服务/挂载阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-behavior',
+    version: '0.2.0',
+    services: { provides: ['elysia.behavior'], consumes: ['elysia.runtime'] },
+    stages: { hooks: ['behavior.decide'] },
+    configNamespace: 'behavior',
+  },
+  build({ ctx, runtime, config, logger }) {
     const { timing, ...baseConfig } = config
+    // 探测 cognition 插件是否安装（P1-10）：behavior 在 projection.routed 里
+    // 读 cognition 的旁路缓存，依赖 cognition 先于 behavior 注册；若 cognition
+    // 已安装但缓存缺失（插件顺序颠倒 / cognition 失败），behavior 将保守跳过
+    // 而不是绕过认知门控直接回复。
+    const cognition = getOptionalElysiaService<unknown>(ctx, {
+      formalName: 'elysia.cognition',
+      legacyName: 'elysia-ai-cognition',
+    })
     return createBehaviorPluginRuntime({
       runtime,
       config: { ...baseConfig, ...timing } as BehaviorConfig,
       logger,
+      cognitionAvailable: Boolean(cognition),
     })
   },
 })

@@ -10,6 +10,7 @@ import {
   type RuntimeStateRepositorySetup,
 } from './store/runtime-state-repository.js'
 import { DefaultPersistenceService } from './persistence-service.js'
+import { createMongoRuntimeRepositories } from './store/mongo-runtime-repositories.js'
 
 export const name = 'elysia-ai-runtime'
 
@@ -63,6 +64,7 @@ export * from './store/memory-conversation-store.js'
 export * from './store/memory-state-repository.js'
 export * from './store/mongo-state-repository.js'
 export * from './store/runtime-state-repository.js'
+export * from './store/mongo-runtime-repositories.js'
 export * from './scheduler/index.js'
 export * from './scheduler/mongo-scheduled-task-repository.js'
 export * from './behavior-execution/index.js'
@@ -103,6 +105,9 @@ export async function apply(ctx: Context, config: Config) {
     debug(message, meta) {
       logger.debug(message, meta)
     },
+    warn(message, meta) {
+      logger.warn(message, meta)
+    },
     error(message, error, meta) {
       if (meta && error) {
         logger.error(message, meta, error)
@@ -131,9 +136,38 @@ export async function apply(ctx: Context, config: Config) {
     return
   }
 
+  // mongo 模式下把调度任务 / 投影规则也切到 Mongo 仓储（P0-3）：
+  // 此前只有 homeostasis 状态走 Mongo，followup 任务与投影规则始终留在
+  // 内存仓储——重启即丢，与"配置 mongo 即持久化"的语义不符。
+  const mongoConnection = stateRepositorySetup.mongoConnection
+  const mongoRepositories = mongoConnection
+    ? createMongoRuntimeRepositories(mongoConnection)
+    : undefined
+  if (mongoRepositories) {
+    try {
+      await mongoRepositories.ensureIndexes()
+    } catch (error) {
+      logger.warn('failed to ensure mongo indexes for scheduled tasks / projection rules', {
+        plugin: 'elysia-ai-runtime',
+        phase: 'state-repository',
+        error: String(error),
+      })
+    }
+  }
+
   const runtime = createDefaultRuntime({
     logger: runtimeLogger,
     stateRepository: stateRepositorySetup.repository,
+    scheduledTaskRepository: mongoRepositories?.scheduledTaskRepository,
+    projectionRuleRepository: mongoRepositories?.projectionRuleRepository,
+  })
+
+  // kernel 兼容治理：runtime 自身（宿主内核，双服务提供者）。
+  // 注册表由 DefaultRuntime 构造函数补齐，此处注册安全。
+  runtime.context.manifests?.register({
+    name: 'elysia-ai-runtime',
+    version: '0.2.0',
+    services: { provides: ['elysia.runtime', 'elysia.persistence'] },
   })
 
   registerElysiaService(ctx, {
@@ -179,6 +213,26 @@ export async function apply(ctx: Context, config: Config) {
       })
     }
     return
+  }
+
+  // 启动时先从仓储恢复投影规则（P0-3）：manifest 加载的 upsertRule 幂等覆盖，
+  // 未配置 manifestPath 时也能凭 Mongo 中已持久化的规则恢复路由，
+  // 避免落到"所有 active life 感知所有 stimulus"的宽路由回退。
+  if (mongoRepositories) {
+    try {
+      await runtime.projectionRuleService.loadFromRepository()
+      const restoredRules = await runtime.projectionRuleService.listRules()
+      logger.debug('projection rules restored from repository', {
+        plugin: 'elysia-ai-runtime',
+        phase: 'projection-rules',
+        ruleCount: restoredRules.length,
+      })
+    } catch (error) {
+      logger.error('failed to restore projection rules from repository', error, {
+        plugin: 'elysia-ai-runtime',
+        phase: 'projection-rules',
+      })
+    }
   }
 
   if (config.manifestPath) {

@@ -127,6 +127,8 @@ export interface MemoryQueryOptions {
   limit?: number
   offset?: number
   includeDeleted?: boolean
+  /** 状态过滤；listByLifeId 等便捷查询会透传给 query()。 */
+  status?: MemoryStatus | MemoryStatus[]
 }
 
 export interface MemoryQuery extends MemoryQueryOptions {

@@ -10,11 +10,12 @@ import type {
   DialogueTask,
   MemoryContextProvider,
 } from '@elysia-ai/core'
+import { createConversationScopeKey } from '@elysia-ai/shared'
 import { DefaultBrainService } from '@elysia-ai/brain'
 
-function createConversationScopeKey(task: DialogueTask): string {
-  const lifePart = task.lifeId ?? 'global'
-  return `${lifePart}:${task.scope.type}:${task.scope.key}`
+function createConversationScopeKeyForTask(task: DialogueTask): string {
+  // 与 cognition 读取侧共用 shared 的唯一实现（P0-2）
+  return createConversationScopeKey(task.lifeId, task.scope)
 }
 
 function entriesToMessages(entries: ConversationEntry[]): DialogueMessage[] {
@@ -41,7 +42,7 @@ async function createBrainRequest(
   memoryContextProvider?: MemoryContextProvider,
   bondContextProvider?: BondContextProvider,
 ): Promise<BrainRequest> {
-  const scopeKey = createConversationScopeKey(task)
+  const scopeKey = createConversationScopeKeyForTask(task)
   const history = conversationStore?.getRecent(scopeKey, memoryLimit) ?? []
   const currentUserContent = getCurrentUserContent(task)
   const actorId = typeof task.metadata?.actorId === 'string' ? task.metadata.actorId : undefined
@@ -125,7 +126,7 @@ export class DefaultDialogueService implements DialogueService {
   ) {}
 
   async execute(task: DialogueTask): Promise<DialogueResult> {
-    const scopeKey = createConversationScopeKey(task)
+    const scopeKey = createConversationScopeKeyForTask(task)
     const currentUserContent = getCurrentUserContent(task)
     const brainRequest = await createBrainRequest(
       task,

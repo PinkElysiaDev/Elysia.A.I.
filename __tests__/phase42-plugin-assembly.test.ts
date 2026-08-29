@@ -1,6 +1,6 @@
 
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from 'koishi'
+import { asCordisContext, type Context } from 'koishi'
 import type { BrainService, ModelGatewayService } from '../packages/@elysia-ai/core/src/index.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { apply as applyBehavior } from '../packages/elysia-ai-behavior/src/index.js'
@@ -27,7 +27,7 @@ function createLogger() {
 
 function createPluginContext() {
   const disposers: Array<() => void | Promise<void>> = []
-  const ctx: any = {
+  const base: any = {
     logger: vi.fn(() => createLogger()),
     command: vi.fn(() => ({ action: vi.fn() })),
     on: vi.fn((event: string, handler: () => void | Promise<void>) => {
@@ -35,6 +35,35 @@ function createPluginContext() {
       return () => {}
     }),
   }
+
+  // 补齐 cordis 服务机制（ctx.set/get/reflect.alias），并模拟插件作用域语义：
+  // 生产代码 registerElysiaService 依赖 cordis effect 在作用域 dispose 时自动置空服务，
+  // mock 无 effect 机制，这里让 dispose handler 执行后再撤销期间通过 ctx.set() 注册的服务。
+  const scopedServiceUndos: Array<() => void> = []
+  const ctx = new Proxy(asCordisContext(base), {
+    get(target: any, prop, receiver) {
+      if (prop === 'set') {
+        return (name: string, value: unknown) => {
+          target.set(name, value)
+          if (value !== undefined) scopedServiceUndos.push(() => target.set(name, undefined))
+        }
+      }
+      if (prop === 'on') {
+        return (event: string, handler: (...args: any[]) => any) => {
+          if (event === 'dispose') {
+            return base.on(event, async (...args: any[]) => {
+              const result = await handler(...args)
+              for (const undo of scopedServiceUndos.splice(0)) undo()
+              return result
+            })
+          }
+          return base.on(event, handler)
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+
   return { ctx: ctx as Context & Record<string, any>, disposers }
 }
 
@@ -132,7 +161,7 @@ const plugins = [
   ['dialogue', 'elysia.dialogue', 'elysia-ai-dialogue', applyDialogue, { enabled: true, memoryLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx); attachBrain(ctx) }],
   ['homeostasis', 'elysia.homeostasis', 'elysia-ai-homeostasis', applyHomeostasis, homeostasisConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
   ['memory', 'elysia.memory', 'elysia-ai-memory', applyMemory, { enabled: true, contextLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['model-gateway', 'elysia.modelGateway', 'elysia-ai-model-gateway', applyModelGateway, { slots: {} }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['model-gateway', 'elysia.modelGateway', 'elysia-ai-model-gateway', applyModelGateway, {}, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
   ['observatory', 'elysia.observatory', 'elysia-ai-observatory', applyObservatory, { enabled: true, maxRecords: 20 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
   ['perception', 'elysia.perception', 'elysia-ai-perception', applyPerception, perceptionConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
   ['persona', 'elysia.persona', 'elysia-ai-persona', applyPersona, personaConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],

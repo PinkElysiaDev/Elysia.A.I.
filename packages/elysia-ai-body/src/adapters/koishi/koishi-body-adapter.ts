@@ -43,6 +43,19 @@ export class KoishiBodyAdapter {
     // 监听所有消息
     const dispose = this.ctx.on('message', async (session) => {
       try {
+        // 过滤 bot 自身发出的消息：OneBot 等适配器会把 message_sent 也派发为
+        // 'message' 事件，不过滤会导致 bot 把自己的回复当作刺激再次感知，
+        // 私聊/群聊均可能形成自言自语死循环。
+        if (session.userId && session.userId === session.selfId) {
+          logger.debug('skipping self message', {
+            plugin: 'elysia-ai-body',
+            phase: 'input',
+            platform: session.platform,
+            messageId: session.messageId ?? session.id,
+          })
+          return
+        }
+
         logger.info('body received platform message', {
           plugin: 'elysia-ai-body',
           phase: 'input',

@@ -10,6 +10,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime, type Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { HomeostasisState } from '../packages/@elysia-ai/core/src/index.js'
 import {
@@ -32,7 +33,7 @@ function createCtx(runtime: Runtime) {
     },
     dispose() { for (const h of disposeHandlers) h() },
   }
-  return ctx
+  return asCordisContext(ctx)
 }
 
 function installHomeostasis(ctx: any, overrides: Record<string, number> = {}) {

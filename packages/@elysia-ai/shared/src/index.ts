@@ -29,6 +29,8 @@ export type { PreflightIssue, PreflightResult, PreflightSeverity } from './prefl
 
 export { clampUnit, clampUnitOr, clampPercent } from './numeric-utils.js'
 export { extractTextFromStimulus } from './stimulus-utils.js'
+export { resolveConversationScope, createConversationScopeKey } from './conversation-scope.js'
+export type { ConversationScope, ConversationScopeType } from './conversation-scope.js'
 
 export { createElysiaPlugin } from './plugin-factory.js'
 export type {

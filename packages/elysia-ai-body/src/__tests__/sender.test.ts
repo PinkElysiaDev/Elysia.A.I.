@@ -104,3 +104,28 @@ describe('body sender', () => {
     )
   })
 })
+
+// ─────────────────────────────────────────────────
+// P1-7：followup 输出继承原始入站消息的路由
+// ─────────────────────────────────────────────────
+
+describe('OutboundRouteRegistry followup 路由继承（P1-7）', () => {
+  it('查不到 "<id>:followup:<ts>" 时回退查原始 stimulus 的路由', async () => {
+    const { OutboundRouteRegistry, RouteMessageSender } = await import('../sender/index.js')
+    const registry = new OutboundRouteRegistry()
+    let sent = ''
+    registry.remember({
+      sourceStimulusId: 'msg-1',
+      message: {} as never,
+      send: async (content) => { sent = content },
+    })
+
+    const sender = new RouteMessageSender(registry)
+    await sender.send({
+      target: { sourceStimulusId: 'msg-1:followup:1700000000000' },
+      content: 'delayed reply',
+    })
+
+    expect(sent).toBe('delayed reply')
+  })
+})

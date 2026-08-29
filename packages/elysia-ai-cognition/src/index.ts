@@ -63,6 +63,14 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-cognition',
   serviceFormalName: 'elysia.cognition',
   serviceLegacyName: 'elysia-ai-cognition',
+  // kernel 兼容治理：声明身份/服务/挂载阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-cognition',
+    version: '0.2.0',
+    services: { provides: ['elysia.cognition'], consumes: ['elysia.runtime'] },
+    stages: { hooks: ['cognition'] },
+    configNamespace: 'cognition',
+  },
   build({ ctx, runtime, config, logger }) {
     const brain = getOptionalElysiaService<BrainService>(ctx, {
       formalName: 'elysia.brain',

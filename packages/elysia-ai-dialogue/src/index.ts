@@ -29,6 +29,14 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-dialogue',
   serviceFormalName: 'elysia.dialogue',
   serviceLegacyName: 'elysia-ai-dialogue',
+  // kernel 兼容治理：声明身份/服务/挂载阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-dialogue',
+    version: '0.2.0',
+    services: { provides: ['elysia.dialogue'], consumes: ['elysia.runtime'] },
+    stages: { hooks: ['dialogue'] },
+    configNamespace: 'dialogue',
+  },
   runtimeDescription: 'runtime event bus',
   build({ ctx, runtime, config, logger }) {
     const brain = getRequiredElysiaService<BrainService>(ctx, {

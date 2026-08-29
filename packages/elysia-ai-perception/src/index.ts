@@ -49,6 +49,14 @@ export const apply = createElysiaPlugin<
   serviceFormalName: 'elysia.perception',
   serviceLegacyName: 'elysia-ai-perception',
   runtimeDescription: 'runtime event bus',
+  // kernel 兼容治理：声明身份/服务/挂载阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-perception',
+    version: '0.2.0',
+    services: { provides: ['elysia.perception'], consumes: ['elysia.runtime'] },
+    stages: { hooks: ['perception'] },
+    configNamespace: 'perception',
+  },
   build({ ctx, runtime, config, logger }) {
     const brain = getOptionalElysiaService<BrainService>(ctx, {
       formalName: 'elysia.brain',

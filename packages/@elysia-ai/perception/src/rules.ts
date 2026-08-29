@@ -66,7 +66,9 @@ function extractEntities(text: string): PerceptionResult['entities'] {
     }
   }
 
-  const timeRegex = /\b(\d{1,2}[:：]\d{2}|今天|明天|昨天|刚才|刚刚|一会儿|马上|立刻|现在|上午|下午|晚上|凌晨)\b/g
+  // CJK 时间词不能用 \b 包裹：\b 只认 ASCII 词边界，"今天下午" 里的
+  // "今天/下午" 两侧都不存在边界，会导致中文时间实体永不命中。
+  const timeRegex = /(\d{1,2}[:：]\d{2}|今天|明天|昨天|刚才|刚刚|一会儿|马上|立刻|现在|上午|下午|晚上|凌晨)/g
   while ((match = timeRegex.exec(text)) !== null) {
     if (!entities.some((e) => e.type === 'time' && e.value === match![0])) {
       entities.push({ type: 'time', value: match[0], confidence: 0.7 })

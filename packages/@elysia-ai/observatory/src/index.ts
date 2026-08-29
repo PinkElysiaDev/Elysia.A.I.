@@ -96,9 +96,38 @@ function registerObserverListeners(
   service: DefaultObservatoryService,
   logger: ObservatoryLoggerLike
 ): Array<() => void> {
-  const bus = eventBus as any
-  const disposers: Array<() => void> = []
+  // onAny 通配符订阅（kernel 总线）：新增事件自动纳入观测，
+  // 不再随 CoreEventMap 演进手工同步枚举表。
+  const bus = eventBus as {
+    onAny?: (handler: (event: string, payload: unknown) => void) => () => void
+    on: (event: string, handler: (payload: unknown) => void) => () => void
+  }
+  if (typeof bus.onAny === 'function') {
+    return [bus.onAny((event, payload) => {
+      try {
+        // runtime.trace.completed：进入专用 trace 缓冲（同时照常记为事件）。
+        if (event === 'runtime.trace.completed') {
+          service.recordTrace(payload as {
+            stimulusId: string
+            kind: 'stimulus' | 'life'
+            lifeId?: string
+            root: unknown
+            events: unknown[]
+          })
+        }
+        service.recordEvent(event, payload)
+      } catch (error) {
+        logger.error('observatory failed to record event', error, {
+          plugin: 'elysia-ai-observatory',
+          phase: 'record',
+          event,
+        })
+      }
+    })]
+  }
 
+  // 回退：旧总线（无 onAny）按全量枚举订阅。
+  const disposers: Array<() => void> = []
   for (const eventName of OBSERVED_EVENTS) {
     const dispose = bus.on(eventName, (payload: unknown) => {
       try {
@@ -158,6 +187,7 @@ export function createObservatoryPluginRuntime(options: ObservatoryPluginRuntime
     queryEvents(query) { return service.queryEvents(query as any) },
     getSnapshot() { return service.getSnapshot() },
     getOperationalSnapshot() { return service.getOperationalSnapshot() },
+    getRecentTraces(options) { return service.getRecentTraces(options) },
     getDiagnostics(): CapabilityDiagnostics {
       return {
         plugin: 'elysia-ai-observatory',

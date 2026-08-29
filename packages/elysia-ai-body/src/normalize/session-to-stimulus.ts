@@ -47,6 +47,9 @@ export function platformMessageToStimulus(message: PlatformMessage): Stimulus {
 
     payload: {
       content: message.content ?? '',
+      rawContent: message.rawContent,
+      quoteContent: message.quoteContent,
+      mentionedUserIds: message.mentionedUserIds,
     },
     metadata: {
       contentText: message.content ?? '',

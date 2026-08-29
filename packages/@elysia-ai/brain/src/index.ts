@@ -42,6 +42,7 @@ export interface Config {
   maxSystemPromptChars?: number
   maxEstimatedTokens?: number
   tokenEstimateRatio?: number
+  planner?: ContextBudgetPlanner
 }
 
 // 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
@@ -182,7 +183,7 @@ export class DefaultBrainService implements BrainService {
       maxSystemPromptChars: config.maxSystemPromptChars ?? 12000,
       maxEstimatedTokens: config.maxEstimatedTokens ?? 3000,
       tokenEstimateRatio: config.tokenEstimateRatio ?? 4,
-      planner: new DefaultContextBudgetPlanner(),
+      planner: config.planner ?? new DefaultContextBudgetPlanner(),
     }
   }
 

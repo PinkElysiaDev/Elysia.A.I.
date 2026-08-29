@@ -254,11 +254,10 @@ describe('Phase 27 Bond Relevance Selection & Context Budget Governance v1', () 
     const service = new DefaultBrainService({
       systemPrompt: 'Base system prompt',
       contextWindow: 10,
-      contextBudget: {
-        maxMemoryChars: 120,
-        maxBondChars: 120,
-        maxSystemPromptChars: 260,
-      },
+      // 预算字段为顶层扁平配置（Config 无嵌套 contextBudget 形态）
+      maxMemoryChars: 120,
+      maxBondChars: 120,
+      maxSystemPromptChars: 260,
     }, gateway as any)
 
     await (service as any).execute({

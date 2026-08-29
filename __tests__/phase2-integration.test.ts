@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { DefaultBrainService } from '../packages/@elysia-ai/brain/src/index.js'
@@ -28,8 +29,8 @@ function makeMockGateway(response?: Partial<ModelGatewayResponse>) {
     execute: vi.fn().mockResolvedValue({
       output: response?.output ?? 'mock output',
       messages: response?.messages ?? [],
-      provider: response?.provider ?? { id: 'mock', type: 'openai' as const, model: 'gpt-4o' },
-      usage: response?.usage ?? { promptTokens: 0, completionTokens: 0 },
+      provider: response?.provider ?? { id: 'mock', type: 'chat-completions' as const, model: 'gpt-4o' },
+      usage: response?.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
       finishReason: response?.finishReason ?? 'stop',
       metadata: response?.metadata ?? {},
     }),
@@ -40,7 +41,7 @@ function makeMockProviderResponse(providerId: string, output = 'mock output') {
   return {
     output,
     messages: [{ role: 'assistant' as const, content: output }],
-    provider: { id: providerId, type: 'openai-compatible' as const, model: 'mock-model' },
+    provider: { id: providerId, type: 'chat-completions' as const, model: 'mock-model' },
     usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     finishReason: 'stop',
     metadata: {},
@@ -50,7 +51,7 @@ function makeMockProviderResponse(providerId: string, output = 'mock output') {
 function makeMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
-  return {
+  const ctx = {
     'elysia-ai-runtime': runtime,
     logger() {
       return { info: vi.fn(), debug: vi.fn(), error: vi.fn() }
@@ -62,6 +63,8 @@ function makeMockKoishiContext(runtime: Runtime) {
       for (const handler of disposeHandlers) handler()
     },
   } as any
+
+  return asCordisContext(ctx)
 }
 
 function listenEvents(runtime: Runtime) {
@@ -124,22 +127,10 @@ describe('Phase 2 集成测试', () => {
         timestamp: Date.now(),
       }
 
-      await runtime.context.eventBus.emit('stimulus.received', {
-        stimulusId: stimulus.id,
-        stimulus,
-      })
-
-      await runtime.context.eventBus.emit('projection.routed', {
-        stimulusId: stimulus.id,
-        routing: {
-          stimulusId: stimulus.id,
-          habitatId: stimulus.habitatId,
-          lifeIds: ['life-test'],
-          projectionIds: ['proj-life-test'],
-          routedAt: Date.now(),
-          reason: 'test routing',
-        },
-      })
+      // 主链接入统一走 runtime.receiveStimulus（kernel 管线编排）：
+      // 裸 emit stimulus.received/projection.routed 只发事实事件，
+      // 不再驱动认知/行为（阶段钩子由管线调度）。
+      await runtime.receiveStimulus(stimulus as never)
 
       await new Promise((r) => setTimeout(r, 100))
 
@@ -236,11 +227,14 @@ describe('Phase 2 集成测试', () => {
   describe('2-C Gateway 容错 — retry + fallback', () => {
     it('应在单 slot 失败时重试', async () => {
       const gateway = new DefaultModelGatewayService({
-        slots: {
-          test: { type: 'openai-compatible', apiKey: 'key', model: 'm' },
+        providers: {
+          test: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://gateway.test' },
+        },
+        providerSlots: {
+          test: { provider: 'test', model: 'm' },
         },
         defaultSlot: 'test',
-        retry: { maxRetries: 2, baseDelayMs: 10, maxDelayMs: 100 },
+        maxRetries: 2, baseDelayMs: 10, maxDelayMs: 100,
       })
 
       const provider = gateway.getRegistry().resolveSlot('test')!
@@ -268,11 +262,14 @@ describe('Phase 2 集成测试', () => {
 
     it('slot provider 失败时应抛出错误', async () => {
       const gateway = new DefaultModelGatewayService({
-        slots: {
-          failing: { type: 'openai-compatible', apiKey: 'k', model: 'm' },
+        providers: {
+          failing: { type: 'chat-completions', apiKey: 'k', baseURL: 'https://gateway.test' },
+        },
+        providerSlots: {
+          failing: { provider: 'failing', model: 'm' },
         },
         defaultSlot: 'failing',
-        retry: { maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100 },
+        maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100,
       })
 
       const provider = gateway.getRegistry().resolveSlot('failing')!
@@ -294,7 +291,7 @@ describe('Phase 2 集成测试', () => {
 
     it('无 slot 配置时应抛出路由错误', async () => {
       const gateway = new DefaultModelGatewayService({
-        retry: { maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100 },
+        maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100,
       })
 
       await expect(
@@ -312,11 +309,14 @@ describe('Phase 2 集成测试', () => {
   describe('2-D 完整端到端场景', () => {
     it('模块结构验证：gateway / brain 可链式构造', () => {
       const gateway = new DefaultModelGatewayService({
-        slots: {
-          main: { type: 'openai-compatible', apiKey: 'key', model: 'model' },
+        providers: {
+          main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://gateway.test' },
+        },
+        providerSlots: {
+          main: { provider: 'main', model: 'model' },
         },
         defaultSlot: 'main',
-        retry: { maxRetries: 1, baseDelayMs: 10, maxDelayMs: 50 },
+        maxRetries: 1, baseDelayMs: 10, maxDelayMs: 50,
       })
 
       const brain = new DefaultBrainService(

@@ -43,6 +43,7 @@ function buildDialogueTask(input: BehaviorExecutionPlannerInput): DialogueTask {
     scope: input.plan.scope,
     sourceStimulusIds: input.plan.sourceStimulusIds,
     mode,
+    habitatId: input.stimulus.habitatId,
     messages: [
       {
         role: 'system',
@@ -59,6 +60,8 @@ function buildDialogueTask(input: BehaviorExecutionPlannerInput): DialogueTask {
       plannerSource: input.plan.plannerSource,
       mode: input.plan.mode,
       currentUserContent: input.currentUserContent,
+      actorId: input.stimulus.actorId,
+      threadId: input.stimulus.threadId,
       behaviorExecution: true,
       shouldUpdateMemory: input.plan.shouldUpdateMemory,
       shouldUpdateBond: input.plan.shouldUpdateBond,
@@ -109,7 +112,13 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
           stimulus: {
             ...input.stimulus,
             id: `${input.stimulus.id}:followup:${now}`,
-            type: 'system',
+            // followup 是调度器主动"唤醒"生命体处理缓冲消息的刺激：
+            // 用 addressing + isMentioned 让它必然越过 discard/buffer 路由
+            // 与 cognition 门控，直接进入 program-direct 立即回复。
+            // （此前 type:'system' 会被 router 直接 discard，followup 永远
+            // 不会产生回复。）
+            type: 'addressing',
+            isMentioned: true,
             timestamp: now + followupDelayMs,
             lifeId: input.lifeId,
             payload: {

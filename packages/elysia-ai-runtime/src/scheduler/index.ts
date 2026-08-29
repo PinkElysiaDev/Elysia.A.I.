@@ -25,6 +25,8 @@ export interface SchedulerService {
   stopLoop?(): void
   runTask(task: ScheduledTask): Promise<ScheduledTaskExecutionResult>
   listTasks(): Promise<ScheduledTask[]>
+  /** 启动阶段回收上次进程中断残留的 running 任务（P1-8）。 */
+  recoverInterruptedTasks?(now?: number): Promise<number>
 }
 
 function cloneTask(task: ScheduledTask): ScheduledTask {
@@ -214,6 +216,50 @@ export class DefaultSchedulerService implements SchedulerService {
         })
       })
     }, tickIntervalMs)
+  }
+
+  /**
+   * 回收中断的 running 任务（P1-8）。
+   *
+   * runTask 先落 running 再 dispatch；进程在 dispatch 期间崩溃/被 kill 后，
+   * 任务既不是 pending（listDue 不取）也无任何恢复逻辑，等于永久丢失。
+   * 本方法在启动阶段调用：新进程内不可能有真正"正在执行"的任务
+   * （tick 有 ticking 互斥、且 loop 尚未启动），因此所有 running 均视为
+   * 上一次进程的中断残留——attempts 未达上限的重置回 pending 立即重跑，
+   * 已达上限的标记 failed。
+   */
+  async recoverInterruptedTasks(now = Date.now()): Promise<number> {
+    const running = (await this.repository.listAll()).filter((task) => task.status === 'running')
+    if (running.length === 0) return 0
+
+    let recovered = 0
+    for (const task of running) {
+      if (task.attempts >= task.maxAttempts) {
+        await this.repository.save({
+          ...task,
+          status: 'failed',
+          lastError: 'interrupted by restart (running at process exit)',
+          updatedAt: now,
+        })
+        continue
+      }
+      await this.repository.save({
+        ...task,
+        status: 'pending',
+        attempts: task.attempts + 1,
+        lastError: 'interrupted by restart (running at process exit)',
+        runAt: now,
+        updatedAt: now,
+      })
+      recovered += 1
+    }
+
+    this.logger?.warn?.('recovered interrupted running tasks', {
+      phase: 'scheduler',
+      recovered,
+      failed: running.length - recovered,
+    })
+    return recovered
   }
 
   stopLoop(): void {

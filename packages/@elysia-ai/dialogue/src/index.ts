@@ -9,6 +9,7 @@ import type {
   EventBus,
   MemoryContextProvider,
 } from '@elysia-ai/core'
+import { NS_BEHAVIOR, NS_DIALOGUE_OUTPUT, STAGE_DIALOGUE } from '@elysia-ai/core'
 import { DefaultDialogueService } from './service.js'
 
 export const internalName = 'elysia-ai-dialogue'
@@ -33,14 +34,15 @@ async function executeOneDialogueTask(
   eventBus: EventBus<CoreEventMap>,
   service: DefaultDialogueService,
   instruction: BehaviorExecutionInstruction,
-  task: DialogueTask
+  task: DialogueTask,
+  onOutput?: (output: CoreEventMap['dialogue.output.created']) => void,
 ) {
   await eventBus.emit('dialogue.task.created', { task })
   await eventBus.emit('dialogue.generation.requested', { task })
   await eventBus.emit('dialogue.started', { task })
   const result = await service.execute(task)
   await eventBus.emit('dialogue.generated', { task, result })
-  await eventBus.emit('dialogue.output.created', {
+  const output: CoreEventMap['dialogue.output.created'] = {
     outputId: `${instruction.stimulusId}:output`,
     stimulusId: instruction.stimulusId,
     habitatId: task.habitatId,
@@ -54,7 +56,10 @@ async function executeOneDialogueTask(
       ...result.metadata,
       source: 'elysia-ai-dialogue',
     },
-  })
+  }
+  await eventBus.emit('dialogue.output.created', output)
+  // 管线路径：输出累积进共享上下文，sender 阶段逐条发送（事件照发不变）。
+  onOutput?.(output)
   await eventBus.emit('dialogue.completed', { task, result })
   return result
 }
@@ -70,7 +75,8 @@ type DialogueLoggerLike = {
 
 export interface DialoguePluginRuntimeOptions {
   runtime: {
-    context: { eventBus: EventBus<CoreEventMap> }
+    /** pipeline 存在时走阶段钩子装配；缺省回退事件装配。 */
+    context: { eventBus: EventBus<CoreEventMap>, pipeline?: import('@elysia-ai/core').PipelineRunner<unknown> }
     conversationStore?: ConversationStore
     memoryContextProvider?: MemoryContextProvider
     bondContextProvider?: BondContextProvider
@@ -124,7 +130,10 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
     memoryLimit: config.memoryLimit,
   })
 
-  const disposeInstruction = eventBus.on('behavior.instruction', async ({ instruction }) => {
+  const handleInstruction = async (
+    instruction: BehaviorExecutionInstruction,
+    onOutput?: (output: CoreEventMap['dialogue.output.created']) => void,
+  ): Promise<void> => {
     logger.debug('dialogue executor received instruction', {
       plugin: 'elysia-ai-dialogue',
       phase: 'dialogue',
@@ -166,6 +175,7 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
           dialogueService,
           instruction,
           task,
+          onOutput,
         )
 
         logger.info('dialogue completed', {
@@ -188,7 +198,28 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
         })
       }
     }
-  })
+  }
+
+  // ── 装配：钩子优先（读共享上下文里的 instruction），事件兜底 ──
+  const pipeline = runtime.context.pipeline
+  const disposeInstruction = pipeline
+    ? pipeline.registerHook({
+        stage: STAGE_DIALOGUE,
+        owner: 'elysia-ai-dialogue',
+        async run(pctx) {
+          const instruction = pctx.read<BehaviorExecutionInstruction>(NS_BEHAVIOR)
+          if (!instruction) return
+          // 输出累积写入 NS_DIALOGUE_OUTPUT（数组化，多 task 场景逐条追加），
+          // sender 阶段读取发送。
+          const outputs = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+          pctx.write(NS_DIALOGUE_OUTPUT, outputs, 'accumulate-begin')
+          await handleInstruction(instruction, (output) => {
+            const current = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+            pctx.write(NS_DIALOGUE_OUTPUT, [...current, output], 'output-created')
+          })
+        },
+      })
+    : eventBus.on('behavior.instruction', ({ instruction }) => handleInstruction(instruction))
 
   return {
     service: dialogueService,

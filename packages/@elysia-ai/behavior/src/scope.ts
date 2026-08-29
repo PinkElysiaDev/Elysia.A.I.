@@ -1,4 +1,5 @@
 import type { Stimulus } from '@elysia-ai/core'
+import { resolveConversationScope } from '@elysia-ai/shared'
 import type { BehaviorPlanningContext, StimulusScope } from './types.js'
 
 function resolveThreadId(
@@ -21,31 +22,7 @@ export function resolveStimulusScope(
   stimulus: Stimulus,
   context: BehaviorPlanningContext
 ): StimulusScope {
-  const threadId = resolveThreadId(stimulus, context)
-
-  if (threadId) {
-    return {
-      type: 'thread',
-      key: `${stimulus.habitatId}:${threadId}`,
-    }
-  }
-
-  if (stimulus.actorId) {
-    return {
-      type: 'user',
-      key: `${stimulus.habitatId}:${stimulus.actorId}`,
-    }
-  }
-
-  if (stimulus.type === 'system' || stimulus.type === 'silence') {
-    return {
-      type: 'life-global',
-      key: 'life-global',
-    }
-  }
-
-  return {
-    type: 'habitat',
-    key: stimulus.habitatId,
-  }
+  // 委托 shared 的唯一派生实现，保证与 cognition 读、dialogue 写的会话
+  // scope key 完全一致（P0-2）。
+  return resolveConversationScope(stimulus, resolveThreadId(stimulus, context))
 }

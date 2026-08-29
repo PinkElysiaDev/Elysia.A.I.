@@ -193,8 +193,8 @@ export function createHomeostasisPluginRuntime(options: HomeostasisPluginRuntime
   })
 
   // 【D3-1】tick 挂在 projection.routed 上：该事件直接带被路由的 lifeIds，
-  // 且在管线中是"生命被激活"的时点（早于 perception）。tick 实现 idle 恢复/衰减动力学，
-  // 仅作用于被路由的生命，不再遍历 lifeRegistry.getAll() 全量空转。
+  // 是"生命被激活"的时点（runtime 事件序为 stimulus.received → perception.completed → projection.routed）。
+  // tick 实现 idle 恢复/衰减动力学，仅作用于被路由的生命，不再遍历 lifeRegistry.getAll() 全量空转。
   // 注：sentiment 驱动的正向回升由 behavior 层经 behavior.homeostasis.update.requested
   // 显式请求（runtime homeostasis service 已消费该事件），那是 sentiment-aware 的正确入口。
   const disposeProjectionRouted = eventBus.on('projection.routed', async ({ stimulusId, routing }) => {

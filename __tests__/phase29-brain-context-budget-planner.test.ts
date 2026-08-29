@@ -158,12 +158,11 @@ describe('Phase 29 Brain Context Budget Planner & Prompt Governance v1', () => {
 
     const service = new DefaultBrainService({
       systemPrompt: 'Base system prompt',
-      contextBudget: {
-        maxMemoryChars: 120,
-        maxBondChars: 120,
-        maxSystemPromptChars: 260,
-        tokenEstimateRatio: 4,
-      },
+      // 预算字段为顶层扁平配置（Config 无嵌套 contextBudget 形态，与 phase27 契约一致）
+      maxMemoryChars: 120,
+      maxBondChars: 120,
+      maxSystemPromptChars: 260,
+      tokenEstimateRatio: 4,
     }, gateway as any)
 
     await service.execute(createBrainRequest())
@@ -185,6 +184,9 @@ describe('Phase 29 Brain Context Budget Planner & Prompt Governance v1', () => {
     expect(gatewayRequests[0].messages[0].content.length).toBeLessThanOrEqual(260)
   })
 
+  // 注意：本用例当前保持失败。Config 已改为顶层扁平预算字段（无嵌套 contextBudget/planner），
+  // DefaultBrainService 构造器硬编码 new DefaultContextBudgetPlanner()，
+  // 自定义 planner 注入能力疑似在扁平化重构中丢失（ContextBudgetConfig.planner 仍导出但无人读取）。
   it('DefaultBrainService 支持注入自定义 ContextBudgetPlanner', async () => {
     const gatewayRequests: any[] = []
     const gateway = {
@@ -226,11 +228,9 @@ describe('Phase 29 Brain Context Budget Planner & Prompt Governance v1', () => {
 
     const service = new DefaultBrainService({
       systemPrompt: 'Base system prompt',
-      contextBudget: {
-        planner,
-        tokenEstimateRatio: 3,
-        maxEstimatedTokens: 128,
-      },
+      planner,
+      tokenEstimateRatio: 3,
+      maxEstimatedTokens: 128,
     }, gateway as any)
 
     await service.execute(createBrainRequest())

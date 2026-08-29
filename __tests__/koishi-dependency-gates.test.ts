@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { apply as applyBody } from '../packages/elysia-ai-body/src/index.js'
 import { apply as applyBrain } from '../packages/elysia-ai-brain/src/index.js'
 import { apply as applyDialogue } from '../packages/elysia-ai-dialogue/src/index.js'
@@ -15,7 +16,7 @@ function createFakeContext() {
     command: vi.fn(() => ({ action: vi.fn() })),
     on: vi.fn(),
   }
-  return { ctx: ctx as any, logger }
+  return { ctx: asCordisContext(ctx as any), logger }
 }
 
 describe('Elysia Koishi dependency gates', () => {

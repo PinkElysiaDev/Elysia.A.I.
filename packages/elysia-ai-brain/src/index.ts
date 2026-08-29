@@ -38,6 +38,13 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-brain',
   serviceFormalName: 'elysia.brain',
   serviceLegacyName: 'elysia-ai-brain',
+  // kernel 兼容治理：声明身份/服务/阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-brain',
+    version: '0.2.0',
+    services: { provides: ['elysia.brain'], consumes: ['elysia.runtime', 'elysia.modelGateway'] },
+    configNamespace: 'brain',
+  },
   runtimeDescription: 'runtime event bus',
   build({ ctx, runtime, config, logger }) {
     const modelGateway = getRequiredElysiaService<ModelGatewayService>(ctx, {

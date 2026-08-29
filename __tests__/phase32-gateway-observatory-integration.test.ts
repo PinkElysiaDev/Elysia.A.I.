@@ -23,7 +23,7 @@ function makeProviderResponse(providerId: string, output = 'ok', latencyMs = 7) 
     messages: [{ role: 'assistant' as const, content: output }],
     provider: {
       id: providerId,
-      type: 'openai-compatible' as const,
+      type: 'chat-completions' as const,
       model: 'observatory-model',
     },
     usage: {
@@ -56,16 +56,16 @@ describe('Phase 32 Gateway Observatory Integration', () => {
   it('gateway.responded event should include diagnostics and health snapshots', async () => {
     const observatory = new DefaultObservatoryService()
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'observatory-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'observatory-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     }, createObservatoryEventBus(observatory) as any)
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -94,7 +94,7 @@ describe('Phase 32 Gateway Observatory Integration', () => {
     expect(metadata.diagnostics.route).toMatchObject({
       slot: 'main',
       providerId: 'slot:main',
-      providerType: 'openai-compatible',
+      providerType: 'chat-completions',
       model: 'observatory-model',
       reason: 'slot-matched',
     })
@@ -115,16 +115,16 @@ describe('Phase 32 Gateway Observatory Integration', () => {
   it('gateway.failed event should include diagnostics and health snapshots', async () => {
     const observatory = new DefaultObservatoryService()
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'observatory-model',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'observatory-model' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     }, createObservatoryEventBus(observatory) as any)
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -177,27 +177,21 @@ describe('Phase 32 Gateway Observatory Integration', () => {
   it('fallback success event should expose failedOver diagnostics and both provider health snapshots', async () => {
     const observatory = new DefaultObservatoryService()
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableFallback: true,
+      slots: {
+        reasoning: ['fast'],
       },
     }, createObservatoryEventBus(observatory) as any)
 
@@ -268,28 +262,24 @@ describe('Phase 32 Gateway Observatory Integration', () => {
   it('circuit-open fallback event should expose circuit-open attempt and final fallback provider', async () => {
     const observatory = new DefaultObservatoryService()
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        reasoning: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'reasoning-model',
-        },
-        fast: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'fast-model',
-        },
+      providers: {
+        reasoning: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+        fast: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        reasoning: { provider: 'reasoning', model: 'reasoning-model' },
+        fast: { provider: 'fast', model: 'fast-model' },
       },
       defaultSlot: 'reasoning',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-      circuitBreaker: { enabled: true, failureThreshold: 1, cooldownMs: 30000 },
-      fallback: {
-        enabled: true,
-        slots: {
-          reasoning: ['fast'],
-        },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      enableCircuitBreaker: true,
+      failureThreshold: 1,
+      cooldownMs: 30000,
+      enableFallback: true,
+      slots: {
+        reasoning: ['fast'],
       },
     }, createObservatoryEventBus(observatory) as any)
 

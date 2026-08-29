@@ -1,66 +1,7 @@
-import type { DialogueMessage } from '@elysia-ai/core'
+import { decodeResponsesResponse, encodeResponsesRequest, extractMessageText } from '@elysia-ai/protocol-responses'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
-import { ProviderError } from './types.js'
-
-function isRetryableStatus(status: number | undefined): boolean {
-  return status === undefined || status === 429 || status >= 500
-}
-
-async function readErrorBody(res: Response): Promise<unknown> {
-  const text = await res.text().catch(() => '')
-  if (!text) return ''
-  try {
-    return JSON.parse(text)
-  } catch {
-    return text
-  }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number | undefined,
-  providerId: string,
-): Promise<Response> {
-  if (!timeoutMs || timeoutMs <= 0) return fetch(url, init)
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    })
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ProviderError(
-        `Provider "${providerId}" request timed out after ${timeoutMs}ms`,
-        providerId,
-        undefined,
-        undefined,
-        {
-          retryable: true,
-          code: 'timeout',
-          cause: error,
-        },
-      )
-    }
-    throw new ProviderError(
-      `Provider "${providerId}" request failed: ${error instanceof Error ? error.message : String(error)}`,
-      providerId,
-      undefined,
-      undefined,
-      {
-        retryable: true,
-        code: 'network-error',
-        cause: error,
-      },
-    )
-  } finally {
-    clearTimeout(timer)
-  }
-}
+import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody, normalizeResponsesFinishReason } from './utils.js'
+import { toCanonicalRequest } from './canonical-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -87,23 +28,15 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const mt = request.maxTokens ?? maxTokens
-      const temp = request.temperature ?? temperature
+      const canonical = toCanonicalRequest(request, {
+        model,
+        maxTokens: request.maxTokens ?? maxTokens,
+        temperature: request.temperature ?? temperature,
+      })
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/responses`
-
-      const input = request.messages.map((m) => ({
-        role: m.role as string,
-        content: m.content,
-      }))
-
-      const body = {
-        model,
-        input,
-        max_output_tokens: mt,
-        temperature: temp,
-      }
+      const body = encodeResponsesRequest(canonical)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -116,51 +49,30 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
       }, timeout, config.id)
 
       if (!res.ok) {
-        const body = await readErrorBody(res)
-        throw new ProviderError(
-          `Responses API failed: ${res.status} ${res.statusText}`,
-          config.id,
-          res.status,
-          body,
-          {
-            retryable: isRetryableStatus(res.status),
-            code: `http-${res.status}`,
-          },
-        )
+        const responseBody = await readResponseBody(res)
+        throw createHttpProviderError('Responses', config.id, res, responseBody)
       }
 
       const json = await res.json() as any
 
       if (json.error) {
-        throw new ProviderError(
-          `Responses API error: ${json.error.message ?? JSON.stringify(json.error)}`,
-          config.id,
-          undefined,
-          json,
-          {
-            retryable: true,
-            code: 'api-error',
-          },
-        )
+        throw createProviderApiError('Responses', config.id, json)
       }
 
-      // Responses API: output is an array of output items
-      let output = ''
-      if (Array.isArray(json.output)) {
-        for (const item of json.output) {
-          if (item.type === 'message' && Array.isArray(item.content)) {
-            for (const part of item.content) {
-              if (part.type === 'output_text') {
-                output += part.text
-              }
-            }
-          }
-        }
+      const canonicalResponse = decodeResponsesResponse(json)
+      let output = extractMessageText(canonicalResponse)
+      if (!output && typeof (json as any).output_text === 'string') {
+        output = (json as any).output_text
       }
 
-      if (!output && typeof json.output_text === 'string') {
-        output = json.output_text
-      }
+      // status 是生命周期状态而非停止原因；截断/过滤须看 incomplete_details
+      const finishReason = normalizeResponsesFinishReason(
+        json.status,
+        typeof json.incomplete_details === 'object' && json.incomplete_details !== null
+          ? (json.incomplete_details as { reason?: unknown }).reason
+          : undefined,
+      )
+      const latencyMs = Date.now() - startedAt
 
       return {
         output,
@@ -175,15 +87,15 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: json.usage?.input_tokens,
-          outputTokens: json.usage?.output_tokens,
-          totalTokens: json.usage?.total_tokens,
+          inputTokens: canonicalResponse.usage?.input_tokens,
+          outputTokens: canonicalResponse.usage?.output_tokens,
+          totalTokens: canonicalResponse.usage?.total_tokens,
         },
-        finishReason: json.status ?? 'unknown',
-        latencyMs: Date.now() - startedAt,
+        finishReason,
+        latencyMs,
         metadata: {
-          responseId: json.id,
-          latencyMs: Date.now() - startedAt,
+          responseId: canonicalResponse.id,
+          latencyMs,
         },
       }
     },

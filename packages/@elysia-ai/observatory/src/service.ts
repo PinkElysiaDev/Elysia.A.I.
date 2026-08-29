@@ -554,9 +554,45 @@ function createSummary(event: string, payload: Record<string, unknown>): string 
 
 export class DefaultObservatoryService {
   private readonly store: ObservatoryStore
+  /** runtime.trace.completed 环形缓冲（上限与事件存储一致）。 */
+  private readonly traces: Array<{
+    stimulusId: string
+    kind: 'stimulus' | 'life'
+    lifeId?: string
+    root: unknown
+    events: unknown[]
+    recordedAt: number
+  }> = []
 
   constructor(maxRecords?: number) {
     this.store = new ObservatoryStore(maxRecords)
+    this.maxTraceRecords = maxRecords ?? 500
+  }
+
+  private readonly maxTraceRecords: number
+
+  /** 记录一条完成的管线 trace（来自 runtime.trace.completed 事实事件）。 */
+  recordTrace(trace: { stimulusId: string, kind: 'stimulus' | 'life', lifeId?: string, root: unknown, events: unknown[] }): void {
+    this.traces.push({ ...trace, recordedAt: Date.now() })
+    if (this.traces.length > this.maxTraceRecords) {
+      this.traces.splice(0, this.traces.length - this.maxTraceRecords)
+    }
+  }
+
+  /** 最近 trace；可按 stimulusId 过滤。 */
+  getRecentTraces(options: { stimulusId?: string, limit?: number } = {}): Array<{
+    stimulusId: string
+    kind: 'stimulus' | 'life'
+    lifeId?: string
+    root: unknown
+    events: unknown[]
+    recordedAt: number
+  }> {
+    const filtered = options.stimulusId
+      ? this.traces.filter((trace) => trace.stimulusId === options.stimulusId)
+      : this.traces
+    const limit = options.limit ?? 10
+    return filtered.slice(-limit).reverse()
   }
 
   record(record: ObservedEventRecord): void {

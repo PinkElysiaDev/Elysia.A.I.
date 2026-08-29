@@ -385,12 +385,17 @@ elysia-plugin-<name>
 
 以下内容仍然有价值，但当前不应继续写成“已经完全定型的正式规范”：
 
-- 完整 plugin manifest 结构
-- 完整 pipeline context 标准
-- 完整 hook stage 列表
+- 完整 hook stage 列表的进一步细化（当前已落地：阶段管线编排 + before/after DAG + 优先级，见《插件开发指南》）
 - 统一 mutate API
-- capabilities 的正式注册与校验机制
-- runtime 对插件兼容性和依赖的自动校验模型
+- capabilities 的正式注册与校验机制（当前已落地：KernelPluginManifest 告警式校验）
+- runtime 对插件兼容性和依赖的自动校验模型（当前已落地：依赖存在性 / frameworkApiVersion / 命名空间冲突，告警式）
+
+2026-08 更新：以下原“待正式化”项已随 kernel 通用子框架落地，升级为正式机制：
+
+- **阶段化管线编排**（`@elysia-ai/kernel` PipelineRunner；四主链插件已迁移到钩子装配，事件发射保留）
+- **pipeline context 标准**（RequestContext 命名空间上下文 + 父链回溯，取代各插件私搭缓存）
+- **事件扩展**（CoreEventMap 声明合并 + onAny 通配符订阅）
+- **插件 manifest 结构**（KernelPluginManifest + PluginManifestRegistry）
 
 这些内容应在：
 - 代码真实落地

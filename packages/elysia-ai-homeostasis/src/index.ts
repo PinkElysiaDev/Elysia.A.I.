@@ -53,6 +53,13 @@ export const apply = createElysiaPlugin<
   name: 'elysia-ai-homeostasis',
   serviceFormalName: 'elysia.homeostasis',
   serviceLegacyName: 'elysia-ai-homeostasis',
+  // kernel 兼容治理：声明身份/服务/阶段，runtime.start() 统一校验。
+  manifest: {
+    name: 'elysia-ai-homeostasis',
+    version: '0.2.0',
+    services: { provides: ['elysia.homeostasis'], consumes: ['elysia.runtime'] },
+    configNamespace: 'homeostasis',
+  },
   build({ runtime, config, logger }) {
     if (!runtime.stateRepository || !runtime.homeostasisService || !runtime.lifeRegistry) {
       logger.error('runtime homeostasis dependencies not found; homeostasis plugin cannot continue', undefined, {

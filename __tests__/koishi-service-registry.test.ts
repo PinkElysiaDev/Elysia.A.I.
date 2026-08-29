@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import {
   getOptionalElysiaService,
   getRequiredElysiaService,
@@ -19,7 +20,7 @@ function createFakeContext() {
       for (const listener of listeners.dispose ?? []) listener()
     },
   }
-  return ctx as typeof ctx & Record<string, unknown>
+  return asCordisContext(ctx) as typeof ctx & Record<string, unknown>
 }
 
 describe('Elysia Koishi service registry helper', () => {
@@ -43,7 +44,11 @@ describe('Elysia Koishi service registry helper', () => {
     expect(ctx['elysia-ai-runtime']).toBeUndefined()
   })
 
-  it('keeps newer services when disposing an older registration', () => {
+  it('compat dispose clears the current registration（不再保留"较新"注册）', () => {
+    // cordis 迁移后的语义：服务销毁由 effect 机制按插件作用域托管，
+    // registerElysiaService 返回的 dispose 句柄仅向后兼容——它直接把服务名置空，
+    // 不再实现旧属性赋值时代"dispose 旧句柄不得误删新注册"的守卫
+    //（重注册本身在真实 cordis 中会因非空覆盖抛错而被跳过）。
     const ctx = createFakeContext()
     const first = { id: 'first' }
     const second = { id: 'second' }
@@ -53,16 +58,18 @@ describe('Elysia Koishi service registry helper', () => {
       legacyName: 'elysia-ai-brain',
       service: first,
     })
-    registerElysiaService(ctx as any, {
-      formalName: 'elysia.brain',
-      legacyName: 'elysia-ai-brain',
-      service: second,
-    })
+    expect(() => {
+      registerElysiaService(ctx as any, {
+        formalName: 'elysia.brain',
+        legacyName: 'elysia-ai-brain',
+        service: second,
+      })
+    }).not.toThrow()
 
     disposeFirst()
 
-    expect(ctx['elysia.brain']).toBe(second)
-    expect(ctx['elysia-ai-brain']).toBe(second)
+    expect(ctx['elysia.brain']).toBeUndefined()
+    expect(ctx['elysia-ai-brain']).toBeUndefined()
   })
 
   it('prefers formal aliases and falls back to legacy aliases', () => {

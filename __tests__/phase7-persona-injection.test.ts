@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import * as observatoryPlugin from '../packages/elysia-ai-observatory/src/index.js'
@@ -36,21 +37,27 @@ function createMockKoishiContext(runtime: Runtime) {
       for (const handler of disposeHandlers) handler()
     },
   }
-  return ctx
+  return asCordisContext(ctx)
 }
 
 function installPipeline(ctx: any, brainSystemPrompt?: string) {
   observatoryPlugin.apply(ctx, { enabled: true, maxRecords: 500 })
   gatewayPlugin.apply(ctx, {
-    slots: {
+    providers: {
       default: {
-        type: 'openai-compatible',
+        type: 'chat-completions',
+        baseURL: 'https://gateway.test',
         apiKey: 'test',
+      },
+    },
+    providerSlots: {
+      default: {
+        provider: 'default',
         model: 'dialogue-generation',
       },
     },
     defaultSlot: 'default',
-    retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+    maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1,
   })
   brainPlugin.apply(ctx, {
     systemPrompt: brainSystemPrompt ?? 'default fallback prompt',
@@ -79,7 +86,7 @@ function installMockProvider(ctx: any) {
     return {
       output: 'persona reply',
       messages: [...request.messages, { role: 'assistant', content: 'persona reply' }],
-      provider: { id: 'p7-provider', type: 'openai-compatible', model: 'dialogue-generation' },
+      provider: { id: 'p7-provider', type: 'chat-completions', model: 'dialogue-generation' },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
       finishReason: 'stop',
       metadata: {},

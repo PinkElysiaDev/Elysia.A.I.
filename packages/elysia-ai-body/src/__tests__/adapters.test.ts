@@ -106,3 +106,44 @@ describe('handlePlatformMessage()', () => {
     expect(stimulus.id).toBe('msg-2')
   })
 })
+
+// ==================== P1-14：Koishi 元素标记剥离 ====================
+
+describe('sessionToPlatformMessage 元素剥离（P1-14）', () => {
+  function elementSession(elements: unknown[], overrides: Record<string, unknown> = {}) {
+    return makeSession({ elements, content: '<at id="bot-001"/> 帮我看看这个问题？', ...overrides })
+  }
+
+  it('at/quote 元素被剥离，content 为纯文本', () => {
+    const session = elementSession([
+      { type: 'at', attrs: { id: 'bot-001', name: '小助手' } },
+      { type: 'text', attrs: { content: ' 帮我看看这个问题？' } },
+    ])
+    const msg = sessionToPlatformMessage(session)
+
+    expect(msg.content).toBe('@小助手 帮我看看这个问题？')
+    expect(msg.rawContent).toContain('<at')
+    expect(msg.isMentioned).toBe(true)
+    expect(msg.mentionedUserIds).toEqual(['bot-001'])
+  })
+
+  it('quote 内容进入 quoteContent 而不混入正文，问句检测因此可用', () => {
+    const session = elementSession([
+      { type: 'quote', attrs: { id: 'q1' }, children: [
+        { type: 'text', attrs: { content: '被引用的旧消息' } },
+      ] },
+      { type: 'text', attrs: { content: '这个怎么解决？' } },
+    ], { content: '<quote id="q1">被引用的旧消息</quote>这个怎么解决？' })
+    const msg = sessionToPlatformMessage(session)
+
+    expect(msg.content).toBe('这个怎么解决？')
+    expect(/[?？]\s*$/.test(msg.content)).toBe(true)
+    expect(msg.quoteContent).toBe('被引用的旧消息')
+  })
+
+  it('无 elements 时回退原始 content（兼容不解析元素的适配器）', () => {
+    const session = makeSession({ elements: undefined })
+    const msg = sessionToPlatformMessage(session)
+    expect(msg.content).toBe('Hello World')
+  })
+})

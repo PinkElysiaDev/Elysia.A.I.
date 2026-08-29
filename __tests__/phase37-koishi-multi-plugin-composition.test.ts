@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime, type Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import * as runtimePlugin from '../packages/elysia-ai-runtime/src/index.js'
 import * as observatoryPlugin from '../packages/elysia-ai-observatory/src/index.js'
@@ -19,7 +20,7 @@ function createMockKoishiContext(runtime?: Runtime) {
   const disposeHandlers: Array<() => void> = []
   const commands: Array<{ name: string, description?: string, action?: (...args: any[]) => any }> = []
 
-  const ctx: any = {
+  const base: any = {
     ...(runtime ? { 'elysia.runtime': runtime } : {}),
     logger: vi.fn(() => ({ info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() })),
     command: vi.fn((name: string, description?: string) => {
@@ -51,6 +52,28 @@ function createMockKoishiContext(runtime?: Runtime) {
     __commands: commands,
   }
 
+  // 补齐 cordis 服务机制（ctx.set/get/reflect.alias），并模拟插件作用域语义：
+  // 生产代码 registerElysiaService 依赖 cordis effect 在作用域 dispose 时自动置空服务，
+  // mock 无 effect 机制，这里让 ctx.dispose() 在执行完 dispose handlers 后撤销期间注册的服务。
+  const scopedServiceUndos: Array<() => void> = []
+  const ctx = new Proxy(asCordisContext(base), {
+    get(target: any, prop, receiver) {
+      if (prop === 'set') {
+        return (name: string, value: unknown) => {
+          target.set(name, value)
+          if (value !== undefined) scopedServiceUndos.push(() => target.set(name, undefined))
+        }
+      }
+      if (prop === 'dispose') {
+        return () => {
+          base.dispose()
+          for (const undo of scopedServiceUndos.splice(0)) undo()
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+
   return ctx
 }
 
@@ -64,12 +87,23 @@ async function startRuntime() {
   return runtime
 }
 
-function applyMinimalDialogueChain(ctx: any) {
-  gatewayPlugin.apply(ctx, {
-    slots: { default: { type: 'openai-compatible', apiKey: 'test', model: 'dialogue-generation' } },
+function gatewayConfig() {
+  return {
+    providers: {
+      default: { type: 'chat-completions', apiKey: 'test', baseURL: 'https://phase37.example' },
+    },
+    providerSlots: {
+      default: { provider: 'default', model: 'dialogue-generation' },
+    },
     defaultSlot: 'default',
-    retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-  })
+    maxRetries: 0,
+    baseDelayMs: 1,
+    maxDelayMs: 1,
+  }
+}
+
+function applyMinimalDialogueChain(ctx: any) {
+  gatewayPlugin.apply(ctx, gatewayConfig() as any)
   brainPlugin.apply(ctx, { systemPrompt: 'phase37 system prompt', contextWindow: 10 })
   behaviorPlugin.apply(ctx, {
     enableReply: true,
@@ -112,7 +146,7 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
     provider.execute = vi.fn(async (request: any) => ({
       output: 'phase37 reply',
       messages: [...request.messages, { role: 'assistant', content: 'phase37 reply' }],
-      provider: { id: 'slot:default', type: 'openai-compatible', model: 'dialogue-generation' },
+      provider: { id: 'slot:default', type: 'chat-completions', model: 'dialogue-generation' },
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       finishReason: 'stop',
       metadata: {},
@@ -143,11 +177,7 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
     const ctx = createMockKoishiContext(runtime)
 
     observatoryPlugin.apply(ctx, { enabled: true, maxRecords: 500 })
-    gatewayPlugin.apply(ctx, {
-      slots: { default: { type: 'openai-compatible', apiKey: 'test', model: 'dialogue-generation' } },
-      defaultSlot: 'default',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-    })
+    gatewayPlugin.apply(ctx, gatewayConfig() as any)
     brainPlugin.apply(ctx, { systemPrompt: 'phase37 full system prompt', contextWindow: 10 })
     memoryPlugin.apply(ctx, { enabled: true, contextLimit: 5 })
     bondPlugin.apply(ctx, { enabled: true, contextLimit: 5 })

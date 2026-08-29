@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { DefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
@@ -58,22 +59,28 @@ function createMockKoishiContext(runtime: Runtime) {
     },
   }
 
-  return ctx
+  return asCordisContext(ctx)
 }
 
 function installFullPipeline(ctx: any) {
   observatoryPlugin.apply(ctx, { enabled: true, maxRecords: 500 })
 
   gatewayPlugin.apply(ctx, {
-    slots: {
+    providers: {
       default: {
-        type: 'openai-compatible',
+        type: 'chat-completions',
+        baseURL: 'https://gateway.test',
         apiKey: 'test',
+      },
+    },
+    providerSlots: {
+      default: {
+        provider: 'default',
         model: 'dialogue-generation',
       },
     },
     defaultSlot: 'default',
-    retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+    maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1,
   })
 
   brainPlugin.apply(ctx, {
@@ -99,7 +106,7 @@ function installMockProvider(ctx: any, output = 'phase6 reply') {
   provider.execute = vi.fn(async (request: any) => ({
     output,
     messages: [...request.messages, { role: 'assistant', content: output }],
-    provider: { id: 'phase6-provider', type: 'openai-compatible', model: 'dialogue-generation' },
+    provider: { id: 'phase6-provider', type: 'chat-completions', model: 'dialogue-generation' },
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     finishReason: 'stop',
     metadata: {},

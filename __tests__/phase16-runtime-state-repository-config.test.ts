@@ -132,7 +132,7 @@ describe('Phase 16 Runtime State Repository Config 集成测试', () => {
   it('显式 memory 配置使用 memory repository', async () => {
     const logger = createLogger()
 
-    const setup = await createRuntimeStateRepository({ type: 'memory' }, logger)
+    const setup = await createRuntimeStateRepository({ stateRepository: 'memory' }, logger)
 
     expect(setup.repository).toBeInstanceOf(MemoryStateRepository)
   })
@@ -144,13 +144,11 @@ describe('Phase 16 Runtime State Repository Config 集成测试', () => {
 
     const setup = await createRuntimeStateRepository(
       {
-        type: 'mongo',
-        mongo: {
-          uri: 'mongodb://localhost:27017',
-          database: 'phase16_db',
-          collection: 'phase16_states',
-          stateType: 'homeostasis',
-        },
+        stateRepository: 'mongo',
+        uri: 'mongodb://localhost:27017',
+        database: 'phase16_db',
+        collection: 'phase16_states',
+        stateType: 'homeostasis',
       },
       logger,
       {
@@ -180,11 +178,9 @@ describe('Phase 16 Runtime State Repository Config 集成测试', () => {
 
     const setup = await createRuntimeStateRepository(
       {
-        type: 'mongo',
-        mongo: {
-          uri: 'mongodb://localhost:27017',
-          failFast: false,
-        },
+        stateRepository: 'mongo',
+        uri: 'mongodb://localhost:27017',
+        failFast: false,
       },
       logger,
       {
@@ -223,11 +219,9 @@ describe('Phase 16 Runtime State Repository Config 集成测试', () => {
 
     await expect(createRuntimeStateRepository(
       {
-        type: 'mongo',
-        mongo: {
-          uri: 'mongodb://localhost:27017',
-          failFast: true,
-        },
+        stateRepository: 'mongo',
+        uri: 'mongodb://localhost:27017',
+        failFast: true,
       },
       logger,
       {
@@ -251,10 +245,8 @@ describe('Phase 16 Runtime State Repository Config 集成测试', () => {
 
     const setup = await createRuntimeStateRepository(
       {
-        type: 'mongo',
-        mongo: {
-          failFast: false,
-        },
+        stateRepository: 'mongo',
+        failFast: false,
       },
       logger,
     )

@@ -18,6 +18,29 @@ import type {
   HomeostasisService,
 } from '@elysia-ai/core'
 import { MemoryEventBus } from '@elysia-ai/core'
+import {
+  ELYSIA_PIPELINE_STAGES,
+  KNOWN_ELYSIA_SERVICE_IDS,
+  PipelineRunner,
+  PluginManifestRegistry,
+  RequestContextStore,
+  TraceRecorder,
+  splitStageOrder,
+} from '@elysia-ai/core'
+
+// 类型化扩展事件（声明合并示范）：每次管线 trace 完成时发出事实通知，
+// observatory 经 onAny 自动捕获，无需手工登记事件名。
+declare module '@elysia-ai/core' {
+  interface CoreEventMap {
+    'runtime.trace.completed': {
+      stimulusId: string
+      kind: 'stimulus' | 'life'
+      lifeId?: string
+      root: import('@elysia-ai/kernel').TraceSpan
+      events: import('@elysia-ai/kernel').TraceEventRecord[]
+    }
+  }
+}
 import type { CoreEventMap } from '@elysia-ai/core'
 import type { RuntimeContext, RuntimeLogger } from './context/index.js'
 import type { LifeRegistry } from './registry/life-registry.js'
@@ -186,6 +209,11 @@ export class DefaultRuntime implements Runtime {
   public homeostasisService: HomeostasisService
   public personaRegistry: PersonaRegistry
   public conversationStore: ConversationStore
+  private readonly stimulusQueues = new Map<string, Promise<void>>()
+  /** loadManifest 收集的 extensions 命名空间键（start 时对齐校验用）。 */
+  private readonly manifestExtensionNamespaces = new Set<string>()
+  /** 延迟兼容审计定时器（stop 时清除）。 */
+  private auditTimer?: ReturnType<typeof setTimeout>
 
   constructor(
     public context: RuntimeContext,
@@ -210,6 +238,22 @@ export class DefaultRuntime implements Runtime {
     bondContextProvider?: BondContextProvider,
     homeostasisService?: HomeostasisService,
   ) {
+    // kernel 管线原语补齐：即使宿主传入裸上下文（单包测试场景），
+    // DefaultRuntime 也保证 pipeline/contexts/manifests 可用，
+    // 能力包据此选择钩子装配而无需判空两条路径。
+    context.pipeline ??= new PipelineRunner<unknown>({
+      onError: (error, meta) => {
+        context.logger.error('pipeline hook failed', error, {
+          phase: 'pipeline',
+          ...meta,
+        })
+      },
+    })
+    context.contexts ??= new RequestContextStore()
+    context.manifests ??= new PluginManifestRegistry()
+    for (const stage of ELYSIA_PIPELINE_STAGES) {
+      context.pipeline.registerStage(stage)
+    }
     this.projectionRegistry = projectionRegistry ?? new MemoryProjectionRegistry()
     this.projectionResolver = projectionResolver ?? new DefaultProjectionResolver(lifeRegistry, this.projectionRegistry)
     this.projectionRuleService = projectionRuleService ?? new DefaultProjectionRuleService(
@@ -221,7 +265,21 @@ export class DefaultRuntime implements Runtime {
     this.scheduler = scheduler ?? new DefaultSchedulerService(
       this.scheduledTaskRepository,
       context.eventBus,
-      {},
+      {
+        // followup 到期必须走完整的 receiveStimulus 主链（感知→投影路由→
+        // 认知→行为），此前只裸 emit stimulus.received，不做 projection
+        // routing，cognition/behavior 都不会被触发，延迟回复永远不发生。
+        followup: async (task) => {
+          const stimulus = task.payload['stimulus']
+          if (stimulus && typeof stimulus === 'object' && 'id' in stimulus && 'habitatId' in stimulus) {
+            await this.receiveStimulus(stimulus as Stimulus)
+            return
+          }
+          context.logger.warn?.('followup task ignored: payload.stimulus missing', {
+            taskId: task.id,
+          })
+        },
+      },
       context.logger,
     )
     this.behaviorExecution = behaviorExecution ?? new DefaultBehaviorExecutionService(
@@ -244,9 +302,76 @@ export class DefaultRuntime implements Runtime {
     this.conversationStore = conversationStore ?? new MemoryConversationStore()
   }
 
+  /**
+   * 兼容性审计（公开）：manifest 依赖/版本/命名空间 + extensions 键对齐。
+   * 逐条 warn 日志并返回全部问题（供调试命令复用）。
+   * options.skipNamespaceCheck：start() 即时审计时置 true——此刻插件
+   * 尚未注册，命名空间检查必然假阳性（Review BUG-2）。
+   */
+  auditCompatibility(options: { skipNamespaceCheck?: boolean } = {}): Array<{ plugin: string, severity: string, code: string, message: string, namespace?: string }> {
+    const findings: Array<{ plugin: string, severity: string, code: string, message: string, namespace?: string }> = []
+    // manifest 兼容治理（告警式）：依赖存在性 / 框架版本 / 命名空间冲突。
+    const issues = this.context.manifests?.validate({
+      knownServices: [...KNOWN_ELYSIA_SERVICE_IDS],
+      knownStages: ELYSIA_PIPELINE_STAGES.map((stage) => stage.name),
+    }) ?? []
+    for (const issue of issues) {
+      this.context.logger.warn?.(`plugin manifest issue: [${issue.severity}/${issue.code}] ${issue.message}`, {
+        plugin: issue.plugin,
+        phase: 'manifest-validate',
+        code: issue.code,
+        severity: issue.severity,
+      })
+      findings.push({ plugin: issue.plugin, severity: issue.severity, code: issue.code, message: issue.message })
+    }
+    if (options.skipNamespaceCheck) return findings
+    // manifest.json extensions 命名空间对齐：键必须是已注册插件的
+    // configNamespace，或 runtime 自身消费的内置命名空间（projection/persona）。
+    const knownNamespaces = new Set<string>(['projection', 'persona'])
+    for (const manifest of this.context.manifests?.getAll() ?? []) {
+      if (manifest.configNamespace) knownNamespaces.add(manifest.configNamespace)
+    }
+    for (const namespace of this.manifestExtensionNamespaces) {
+      if (!knownNamespaces.has(namespace)) {
+        const message = `manifest extensions namespace "${namespace}" has no providing plugin (typo or plugin not installed?)`
+        this.context.logger.warn?.(message, {
+          plugin: 'elysia-ai-runtime',
+          phase: 'manifest-validate',
+          code: 'unknown-config-namespace',
+          severity: 'warn',
+          namespace,
+        })
+        findings.push({ plugin: 'elysia-ai-runtime', severity: 'warn', code: 'unknown-config-namespace', message, namespace })
+      }
+    }
+    return findings
+  }
+
   async start(): Promise<void> {
     this.context.logger.info('runtime start requested')
     await this.lifecycle.start()
+    // 审计时机（Review BUG-2 修复）：start() 时其余插件（inject 等待者）
+    // 尚未 apply、manifest 未注册——立即全量审计会漏检并假阳性。
+    // 即时审计只查已注册 manifest（跳过 extensions 命名空间检查），
+    // 延迟到下一宏任务再补一轮全量审计（覆盖同 tick 加载完成的插件）。
+    this.auditCompatibility({ skipNamespaceCheck: true })
+    if (this.auditTimer) clearTimeout(this.auditTimer)
+    this.auditTimer = setTimeout(() => {
+      this.auditTimer = undefined
+      this.auditCompatibility()
+    }, 0)
+    this.auditTimer.unref?.()
+    // 先回收上次进程中断残留的 running 任务，再启动调度循环，
+    // 避免恢复出的 pending 任务错过首轮 tick（P1-8）。
+    if (this.scheduler.recoverInterruptedTasks) {
+      try {
+        await this.scheduler.recoverInterruptedTasks()
+      } catch (error) {
+        this.context.logger.error('failed to recover interrupted scheduled tasks', error, {
+          phase: 'scheduler',
+        })
+      }
+    }
     if ('start' in this.homeostasisService && typeof this.homeostasisService.start === 'function') {
       this.homeostasisService.start()
     }
@@ -263,6 +388,11 @@ export class DefaultRuntime implements Runtime {
   }
 
   async stop(): Promise<void> {
+    // 取消未触发的延迟兼容审计。
+    if (this.auditTimer) {
+      clearTimeout(this.auditTimer)
+      this.auditTimer = undefined
+    }
     // 幂等保护：已停止时静默返回，不抛出错误
     // 这允许外层代码（如 Koishi dispose 事件）安全地多次调用 stop()
     if (this.lifecycle.getState() === 'stopped' || this.lifecycle.getState() === 'idle') {
@@ -299,6 +429,31 @@ export class DefaultRuntime implements Runtime {
       return
     }
 
+    // 同一 habitat 的刺激串行处理（P1-9）：Koishi 消息天然并发，而
+    // homeostasis / bond / memory 的更新是"读-改-写"，两个 projection.routed
+    // 处理流交错会互相覆盖状态。按 habitatId 维护 promise 链排队，
+    // 不同 habitat 之间仍并行，对外行为（不抛错）保持不变。
+    const queueKey = stimulus.habitatId || '_global'
+    const previous = this.stimulusQueues.get(queueKey) ?? Promise.resolve()
+    const chained = previous.then(() => this.processStimulus(stimulus))
+    this.stimulusQueues.set(queueKey, chained)
+    try {
+      await chained
+    } catch (error) {
+      // processStimulus 内部 emit 已隔离监听器错误；此处兜底队列尾部异常，
+      // 避免单条失败毒化同 habitat 后续消息的处理链。
+      this.context.logger.error('stimulus processing failed in habitat queue', error, {
+        stimulusId: stimulus.id,
+        habitatId: stimulus.habitatId,
+      })
+    } finally {
+      if (this.stimulusQueues.get(queueKey) === chained) {
+        this.stimulusQueues.delete(queueKey)
+      }
+    }
+  }
+
+  private async processStimulus(stimulus: Stimulus): Promise<void> {
     this.context.logger.info('runtime received stimulus', {
       stimulusId: stimulus.id,
       stimulusType: stimulus.type,
@@ -312,25 +467,80 @@ export class DefaultRuntime implements Runtime {
       habitatId: stimulus.habitatId,
     })
 
-    // 发出 stimulus.received 事件
+    // 发出 stimulus.received 事件（事实通知；观测者与迁移期事件装配消费）
     await this.context.eventBus.emit('stimulus.received', {
       stimulusId: stimulus.id,
       stimulus,
     })
 
-    // Projection routing：解析哪些 life 应该感知此 stimulus
-    const routing = this.projectionResolver.resolve(stimulus)
+    // ── 刺激段管线（每 stimulus 一次）：stimulus.received → perception ──
+    // 阶段是命令侧编排；事件照发，观测/旁路消费者不受影响。
+    // trace 完成回调 → runtime.trace.completed 事实事件（observatory 消费）。
+    const pipeline = this.context.pipeline
+    const contexts = this.context.contexts
+    const emitTrace = (kind: 'stimulus' | 'life', lifeId: string | undefined) =>
+      new TraceRecorder((root, traceEvents) => {
+        void this.context.eventBus.emit('runtime.trace.completed', {
+          stimulusId: stimulus.id,
+          kind,
+          lifeId,
+          root,
+          events: traceEvents,
+        })
+      })
+    const stimulusContext = pipeline && contexts
+      ? contexts.create({ id: stimulus.id, core: { stimulus }, trace: emitTrace('stimulus', undefined) })
+      : undefined
+    try {
+      if (pipeline && stimulusContext) {
+        // 动态切分（Review BUG-1 修复）：基于 runner 实际注册阶段（含第三方）
+        // 按 cognition 锚点切分，固定清单会漏掉 perception/cognition 之间的阶段。
+        await pipeline.run(stimulusContext, { stages: splitStageOrder(pipeline.getStageOrder()).stimulusPhase })
+      }
 
-    this.context.logger.debug('projection routing resolved', {
-      stimulusId: stimulus.id,
-      lifeIds: routing.lifeIds,
-      reason: routing.reason,
-    })
+      // Projection routing：解析哪些 life 应该感知此 stimulus
+      const routing = this.projectionResolver.resolve(stimulus)
 
-    await this.context.eventBus.emit('projection.routed', {
-      stimulusId: stimulus.id,
-      routing,
-    })
+      this.context.logger.debug('projection routing resolved', {
+        stimulusId: stimulus.id,
+        lifeIds: routing.lifeIds,
+        reason: routing.reason,
+      })
+
+      await this.context.eventBus.emit('projection.routed', {
+        stimulusId: stimulus.id,
+        routing,
+      })
+
+      // ── 生命段管线（每个路由命中的 lifeId 一次）：
+      //    cognition → behavior.decide → behavior.execute → dialogue → sender ──
+      // 生命段上下文以刺激段为父链：perception 结果经 NS_PERCEPTION 可见。
+      if (pipeline && contexts && stimulusContext) {
+        for (const lifeId of routing.lifeIds) {
+          const lifeContext = contexts.create({
+            id: `${stimulus.id}:${lifeId}`,
+            core: { stimulus, lifeId, routing },
+            parent: stimulusContext,
+            trace: emitTrace('life', lifeId),
+          })
+          try {
+            await pipeline.run(lifeContext, { stages: splitStageOrder(pipeline.getStageOrder()).lifePhase })
+          } finally {
+            lifeContext.trace.finish()
+            contexts.delete(lifeContext.id)
+          }
+        }
+      }
+    } finally {
+      if (stimulusContext) {
+        stimulusContext.trace.finish()
+        contexts?.delete(stimulus.id)
+      }
+      // 低频兜底清扫超龄上下文（正常路径已即时 delete）。
+      if (contexts && contexts.size > 64) {
+        contexts.sweep()
+      }
+    }
   }
 
   async loadManifest(config: ManifestConfig): Promise<void> {
@@ -347,6 +557,11 @@ export class DefaultRuntime implements Runtime {
     for (const instance of config.lifeInstances) {
       // 跳过 disabled 的实例
       if (instance.enabled === false) continue
+
+      // 收集 extensions 命名空间键，start() 时对齐 manifest 注册表校验。
+      for (const namespace of Object.keys(instance.extensions ?? {})) {
+        this.manifestExtensionNamespaces.add(namespace)
+      }
 
       // 按 LifeInstance 接口构造
       // 注意：LifeInstance.name 从 meta.name 获取，不存在时回退为 id

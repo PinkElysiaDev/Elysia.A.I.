@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import * as observatoryPlugin from '../packages/elysia-ai-observatory/src/index.js'
@@ -62,7 +63,7 @@ function createMockKoishiContext(runtime: Runtime) {
     },
   }
 
-  return ctx
+  return asCordisContext(ctx)
 }
 
 async function createStartedRuntime() {
@@ -82,15 +83,21 @@ async function installPipeline(ctx: any, observatoryConfig: { maxRecords?: numbe
   })
 
   gatewayPlugin.apply(ctx, {
-    slots: {
+    providers: {
       default: {
-        type: 'openai-compatible',
+        type: 'chat-completions',
+        baseURL: 'https://gateway.test',
         apiKey: 'test-key',
+      },
+    },
+    providerSlots: {
+      default: {
+        provider: 'default',
         model: 'dialogue-generation',
       },
     },
     defaultSlot: 'default',
-    retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+    maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1,
   })
 
   brainPlugin.apply(ctx, {
@@ -125,7 +132,7 @@ function installMockProvider(ctx: any, output = 'Elysia phase 5 reply') {
     ],
     provider: {
       id: 'slot:default',
-      type: 'openai-compatible' as const,
+      type: 'chat-completions' as const,
       model: 'dialogue-generation',
     },
     usage: {

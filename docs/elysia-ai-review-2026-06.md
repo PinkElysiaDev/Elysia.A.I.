@@ -234,9 +234,18 @@ R2 已完成（见下）。D1–D4 开发阶段见第五章。建议严格按 R 
 - [完成] R2-2 安全网 — 复用既有 phase25/27/28 共 16 例选择器测试（含 invalid JSON / invalid ids / timeout / fallback 事件 / 诊断对齐）验证 0 行为变更
 - [完成] R2-3 — `@elysia-ai/shared/src/mongo-doc-repository.ts` — 抽 `MongoDocRepository<TModel,TDoc>` 裸 driver 仓储基类（封装 find 游标归一化 / `$set`+`$setOnInsert` upsert / findById / ensureIndexes(批量) / deleteById）；memory/bond 的 Mongo 仓储改为**组合委托**，保留各自 hydrate-to-memory 行为不变；`loadAll()`/`query 钩子`预留为 D1 服务端直查的接缝
 - [完成] R2-4 — `@elysia-ai/shared/src/plugin-factory.ts` — 抽 `createElysiaPlugin()` HOF（logger→runtime门控→eventBus门控→build→注册→dispose）；perception/persona/behavior/brain/dialogue/cognition/homeostasis 共 7 个标准 wrapper 迁移；memory/bond/model-gateway/observatory/body 5 个含仓储工厂/命令注册/自定义事件接线的 wrapper 保持显式（强抽象得不偿失）
-- [完成] R2-4 新测试 — `__tests__/r2-plugin-factory.test.ts`（4 例）— 覆盖此前未测的成功注册路径与 dispose 清理路径，以及无 eventBus / build 返回 undefined 两条门控
+  - [完成] R2-4 新测试 — `__tests__/r2-plugin-factory.test.ts`（4 例）— 覆盖此前未测的成功注册路径与 dispose 清理路径，以及无 eventBus / build 返回 undefined 两条门控
 
-### 仍待开发（A 类，需用户确认后启动）
-D1 持久化生产化（裸 mongodb driver）→ D2 真实 provider → D3 生命状态层深化 → D4 观测持久化，详见第五章。
+### R3 热路径正确性（0.1.3 → 0.1.4）
+- [完成] 时间实体 — perception `rules.ts` — 中文时间词去掉 `\b`，与 H1 同一类 CJK 边界漏洞
+- [完成] 行为信号 — behavior `signals.ts` — `isMentioned` / `isDirectMessage` / `isReply` 进入 directness 与 responseNecessity
+- [完成] 中文连续性 — cognition `ai-enhanced.ts` — 无空格中文用二字重叠 token，不再整句当一个词
+- [完成] 错误隔离 — cognition / behavior `projection.routed` 按 life 包 try/catch，一条失败不再中断其余生命
+- [完成] LRU — shared `BoundedCache` — get/set 刷新插入序，避免热 key 被 FIFO 误淘汰
+- [完成] 注释 — homeostasis tick 时序说明与真实事件序对齐
+- [完成] 测试 — `r1-perception-cjk` 补时间实体；新增 `r3-hotpath-optimizations.test.ts`
+
+### 仍待开发（A 类）
+D4 观测持久化 / dashboard / 完整 RBAC；behavior bucket 池；Redis 辅助层。D1–D3 已完成。
 
 

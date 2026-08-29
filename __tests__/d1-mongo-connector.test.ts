@@ -10,9 +10,10 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from 'koishi'
+import { asCordisContext, type Context } from 'koishi'
 import { connectMongo, lazyMongoCollection, type MongoClientLike } from '../packages/@elysia-ai/shared/src/index.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
+import { createRuntimeStateRepository } from '../packages/elysia-ai-runtime/src/store/runtime-state-repository.js'
 import { apply as applyMemory } from '../packages/elysia-ai-memory/src/index.js'
 import { apply as applyBond } from '../packages/elysia-ai-bond/src/index.js'
 
@@ -117,37 +118,52 @@ function createPluginContext() {
     command: () => ({ action: () => {} }),
     on: () => () => {},
   }
-  return ctx as unknown as Context & Record<string, unknown>
+  return asCordisContext(ctx) as unknown as Context & Record<string, unknown>
 }
 
-describe('D1-5 memory/bond 配 mongo.uri 即启用（无需注入 factory）', () => {
-  it('memory 配 uri 后 repository 为 Mongo 实现', () => {
+describe('D1-5 memory/bond 经 elysia.persistence 启用 mongo（无需注入 factory）', () => {
+  // 架构演进：memory/bond 插件不再各自解析 repository.mongo.uri 配置，
+  // 而是由 runtime 插件统一建 mongo 连接并注册 elysia.persistence 服务，
+  // 消费方从 persistence.getCollection() 取句柄建 Mongo 仓储（无需注入 repositoryFactory）；
+  // 服务未注册或句柄为空时回退内存仓储。缺 uri 的 fail-fast 语义移至 runtime 层配置。
+
+  function installMongoPersistence(ctx: Context & Record<string, unknown>) {
+    ;(ctx as Record<string, unknown>)['elysia.persistence'] = {
+      mode: 'mongo',
+      getCollection: () => makeCollection(),
+    }
+  }
+
+  it('persistence 提供 mongo collection 时 memory 仓储为 Mongo 实现', () => {
     const ctx = createPluginContext()
     ;(ctx as Record<string, unknown>)['elysia.runtime'] = createDefaultRuntime()
-    applyMemory(ctx, {
-      enabled: true,
-      contextLimit: 5,
-      repository: { type: 'mongo', mongo: { uri: 'mongodb://localhost:27017', collectionName: 'm' } },
-    } as never)
+    installMongoPersistence(ctx)
+    applyMemory(ctx, { enabled: true, contextLimit: 5 } as never)
     const repo = (ctx as Record<string, any>)['elysia.memory']?.repository
     expect(repo?.constructor?.name).toBe('MongoMemoryRepository')
   })
 
-  it('bond 配 uri 后 repository 为 Mongo 实现', () => {
+  it('persistence 提供 mongo collection 时 bond 仓储为 Mongo 实现', () => {
     const ctx = createPluginContext()
     ;(ctx as Record<string, unknown>)['elysia.runtime'] = createDefaultRuntime()
-    applyBond(ctx, {
-      enabled: true,
-      contextLimit: 5,
-      repository: { type: 'mongo', mongo: { uri: 'mongodb://localhost:27017', collectionName: 'b' } },
-    } as never)
+    installMongoPersistence(ctx)
+    applyBond(ctx, { enabled: true, contextLimit: 5 } as never)
     const repo = (ctx as Record<string, any>)['elysia.bond']?.repository
     expect(repo?.constructor?.name).toBe('MongoBondRepository')
   })
 
-  it('mongo 类型但既无 uri 也无 factory 时 fail fast', () => {
+  it('无 persistence 服务时回退内存仓储', () => {
     const ctx = createPluginContext()
     ;(ctx as Record<string, unknown>)['elysia.runtime'] = createDefaultRuntime()
-    expect(() => applyMemory(ctx, { enabled: true, contextLimit: 5, repository: { type: 'mongo' } } as never)).toThrow(/uri|repositoryFactory/)
+    applyMemory(ctx, { enabled: true, contextLimit: 5 } as never)
+    const repo = (ctx as Record<string, any>)['elysia.memory']?.repository
+    expect(repo?.constructor?.name).toBe('MemoryMemoryRepository')
+  })
+
+  it('runtime 层 mongo 配置缺 uri 且 failFast=true 时 fail fast', async () => {
+    const logger = { info: vi.fn(), debug: vi.fn(), error: vi.fn() }
+    await expect(
+      createRuntimeStateRepository({ stateRepository: 'mongo', failFast: true }, logger),
+    ).rejects.toThrow(/uri/)
   })
 })

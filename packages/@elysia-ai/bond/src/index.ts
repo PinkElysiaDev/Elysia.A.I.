@@ -548,6 +548,11 @@ export class MemoryBondRepository implements BondRepository {
     return cloneBond(updated)
   }
 
+  /** 从本地 Map 硬逐出（区别于软删除的 remove）；供 Mongo 子类控制本地副本规模。 */
+  evictLocal(id: string): void {
+    this.bonds.delete(id)
+  }
+
   async remove(id: string): Promise<void> {
     const current = this.bonds.get(id)
     if (!current) return
@@ -657,20 +662,27 @@ export class MongoBondRepository extends MemoryBondRepository {
   async save(bond: Bond): Promise<void> {
     await super.save(bond)
     await this.gateway.upsert(bond.id, bond)
+    // 本地 Map 只为 update/remove 的读-改-写短暂服务，写后即逐出（P1-15）。
+    this.evictLocal(bond.id)
   }
 
   async update(id: string, patch: Partial<Bond>): Promise<Bond> {
-    await this.ensureLocal(id)
+    // 强制刷新远端最新值再合并，避免陈旧本地副本整文档覆盖（P1-15）。
+    const fromMongo = await this.gateway.findById(id)
+    if (fromMongo) await super.save(fromMongo)
     const updated = await super.update(id, patch)
     await this.gateway.upsert(updated.id, updated)
+    this.evictLocal(id)
     return updated
   }
 
   async remove(id: string): Promise<void> {
-    await this.ensureLocal(id)
+    const fromMongo = await this.gateway.findById(id)
+    if (fromMongo) await super.save(fromMongo)
     await super.remove(id)
     const updated = await super.getById(id)
     if (updated) await this.gateway.upsert(updated.id, updated)
+    this.evictLocal(id)
   }
 
   async query(query: BondQuery): Promise<BondSearchResult> {

@@ -10,7 +10,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DefaultModelGatewayService, ProviderError } from '../packages/@elysia-ai/model-gateway/src/index.js'
-import { createOpenAICompatibleProvider } from '../packages/@elysia-ai/model-gateway/src/providers/openai-compatible.js'
+import { createChatCompletionsProvider } from '../packages/@elysia-ai/model-gateway/src/providers/chat-completions.js'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -46,11 +46,12 @@ describe('Phase 30 Model Gateway Provider Governance', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const provider = createOpenAICompatibleProvider({
+    const provider = createChatCompletionsProvider({
       id: 'slot:compatible',
-      type: 'openai-compatible',
+      type: 'chat-completions',
       apiKey: 'secret-key',
-      endpoint: 'https://compatible.example/v1/',
+      baseURL: 'https://compatible.example',
+      endpoint: '/v1',
       model: 'compatible-model',
       maxTokens: 128,
       temperature: 0.2,
@@ -82,7 +83,7 @@ describe('Phase 30 Model Gateway Provider Governance', () => {
     expect(result.output).toBe('compatible ok')
     expect(result.provider).toMatchObject({
       id: 'slot:compatible',
-      type: 'openai-compatible',
+      type: 'chat-completions',
       model: 'compatible-model',
       endpoint: 'https://compatible.example/v1',
     })
@@ -97,16 +98,16 @@ describe('Phase 30 Model Gateway Provider Governance', () => {
 
   it('gateway should not retry non-retryable provider errors', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
-        main: {
-          type: 'openai-compatible',
-          apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'm',
-        },
+      providers: {
+        main: { type: 'chat-completions', apiKey: 'key', baseURL: 'https://compatible.example' },
+      },
+      providerSlots: {
+        main: { provider: 'main', model: 'm' },
       },
       defaultSlot: 'main',
-      retry: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -137,19 +138,23 @@ describe('Phase 30 Model Gateway Provider Governance', () => {
 
   it('gateway should forward request metadata overrides to provider request', async () => {
     const gateway = new DefaultModelGatewayService({
-      slots: {
+      providers: {
         main: {
-          type: 'openai-compatible',
+          type: 'chat-completions',
           apiKey: 'key',
-          endpoint: 'https://compatible.example/v1',
-          model: 'slot-model',
+          baseURL: 'https://compatible.example',
           maxTokens: 4096,
           temperature: 0.7,
           timeoutMs: 3000,
         },
       },
+      providerSlots: {
+        main: { provider: 'main', model: 'slot-model' },
+      },
       defaultSlot: 'main',
-      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+      maxRetries: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
     })
 
     const provider = gateway.getRegistry().resolveSlot('main')!
@@ -158,7 +163,7 @@ describe('Phase 30 Model Gateway Provider Governance', () => {
       messages: [{ role: 'assistant' as const, content: 'ok' }],
       provider: {
         id: 'slot:main',
-        type: 'openai-compatible' as const,
+        type: 'chat-completions' as const,
         model: request.model ?? 'slot-model',
       },
       finishReason: 'stop',

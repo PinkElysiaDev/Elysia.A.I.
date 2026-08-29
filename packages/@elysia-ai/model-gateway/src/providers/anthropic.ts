@@ -1,4 +1,4 @@
-import type { DialogueMessage } from '@elysia-ai/core'
+import { decodeMessagesResponse, encodeMessagesRequest, extractMessageText } from '@elysia-ai/protocol-anthropic'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
 import {
   createHttpProviderError,
@@ -7,21 +7,7 @@ import {
   normalizeClaudeFinishReason,
   readResponseBody,
 } from './utils.js'
-
-function extractSystem(messages: DialogueMessage[]): string | undefined {
-  const sys = messages.filter((m) => m.role === 'system')
-  if (sys.length === 0) return undefined
-  return sys.map((m) => m.content).join('\n')
-}
-
-function toClaudeMessages(messages: DialogueMessage[]) {
-  return messages
-    .filter((m) => m.role !== 'system')
-    .map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }))
-}
+import { toCanonicalRequest } from './canonical-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -48,25 +34,15 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const mt = request.maxTokens ?? maxTokens
-      const temp = request.temperature ?? temperature
+      const canonical = toCanonicalRequest(request, {
+        model,
+        maxTokens: request.maxTokens ?? maxTokens,
+        temperature: request.temperature ?? temperature,
+      })
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/messages`
-
-      const system = extractSystem(request.messages)
-      const claudeMessages = toClaudeMessages(request.messages)
-
-      const body: Record<string, unknown> = {
-        model,
-        max_tokens: mt,
-        temperature: temp,
-        messages: claudeMessages,
-      }
-
-      if (system) {
-        body.system = system
-      }
+      const body = encodeMessagesRequest(canonical)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -90,21 +66,9 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
         throw createProviderApiError('Claude', config.id, json)
       }
 
-      let output = ''
-      if (Array.isArray(json.content)) {
-        for (const block of json.content) {
-          if (block.type === 'text') {
-            output += block.text
-          }
-        }
-      }
-
-      const finishReason = normalizeClaudeFinishReason(json.stop_reason)
-      const inputTokens = json.usage?.input_tokens
-      const outputTokens = json.usage?.output_tokens
-      const totalTokens = typeof inputTokens === 'number' && typeof outputTokens === 'number'
-        ? inputTokens + outputTokens
-        : undefined
+      const canonicalResponse = decodeMessagesResponse(json)
+      const output = extractMessageText(canonicalResponse)
+      const finishReason = normalizeClaudeFinishReason(canonicalResponse.stop_reason)
       const latencyMs = Date.now() - startedAt
 
       return {
@@ -116,19 +80,19 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
         provider: {
           id: config.id,
           type: 'anthropic',
-          model: json.model ?? model,
+          model: canonicalResponse.model || model,
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens,
-          outputTokens,
-          totalTokens,
+          inputTokens: canonicalResponse.usage?.input_tokens,
+          outputTokens: canonicalResponse.usage?.output_tokens,
+          totalTokens: canonicalResponse.usage?.total_tokens,
         },
         finishReason,
         latencyMs,
         metadata: {
-          responseId: json.id,
-          model: json.model,
+          responseId: canonicalResponse.id,
+          model: canonicalResponse.model,
           providerLatencyMs: latencyMs,
           latencyMs,
         },

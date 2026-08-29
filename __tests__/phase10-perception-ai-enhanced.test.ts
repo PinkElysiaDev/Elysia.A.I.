@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type {
@@ -50,7 +51,7 @@ function createMockKoishiContext(runtime: Runtime, brain?: BrainService) {
     },
   }
 
-  return ctx
+  return asCordisContext(ctx)
 }
 
 function createPerceptionConfig(
@@ -130,7 +131,7 @@ describe('Phase 10 Perception AI Enhanced 集成测试', () => {
           sentiment: { label: 'negative', confidence: 0.86 },
         }),
         metadata: {
-          provider: { id: 'mock-provider', type: 'test' },
+          provider: { id: 'mock-provider', type: 'custom' },
           usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         },
       })),

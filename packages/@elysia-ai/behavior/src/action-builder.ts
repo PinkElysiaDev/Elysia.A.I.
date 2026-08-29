@@ -67,12 +67,28 @@ function scopeToCore(scope: StimulusScope): ResponsePlan['scope'] {
 }
 
 /**
+ * 构建 DialogueTask 时携带的来源维度（P1-6）。
+ *
+ * dialogue 消费侧用 habitatId / metadata.actorId / metadata.threadId 驱动
+ * memory/bond 上下文检索；缺失会导致检索维度退化成全局召回。
+ */
+export interface DialogueTaskSourceContext {
+  actorId?: string
+  habitatId?: string
+  threadId?: string
+}
+
+/**
  * 根据 ResponsePlan 构建 BehaviorAction 列表
  *
  * 每个 plan 展开为一个或多个 action，当前阶段每 plan 返回一个 action。
  * 保留 action 列表结构是为了支持未来并行执行（如同时 dialogue + memory-update）。
  */
-export function buildActions(plan: ResponsePlan, currentUserContent?: string): BehaviorAction[] {
+export function buildActions(
+  plan: ResponsePlan,
+  currentUserContent?: string,
+  sourceContext?: DialogueTaskSourceContext,
+): BehaviorAction[] {
   const actions: BehaviorAction[] = []
 
   if (plan.shouldEnterDialogue) {
@@ -80,11 +96,14 @@ export function buildActions(plan: ResponsePlan, currentUserContent?: string): B
       scope: scopeToCore(plan.scope),
       sourceStimulusIds: plan.sourceStimulusIds,
       mode: mapPlanModeToDialogueMode(plan.mode),
+      habitatId: sourceContext?.habitatId,
       messages: createDefaultSystemMessages(plan),
       metadata: {
         plannerSource: plan.plannerSource,
         mode: plan.mode,
         currentUserContent,
+        actorId: sourceContext?.actorId,
+        threadId: sourceContext?.threadId,
         shouldUpdateMemory: plan.shouldUpdateMemory,
         shouldUpdateBond: plan.shouldUpdateBond,
         shouldUpdateHomeostasis: plan.shouldUpdateHomeostasis,
@@ -116,8 +135,9 @@ export function buildInstruction(
   stimulusId: string,
   plan: ResponsePlan,
   currentUserContent?: string,
+  sourceContext?: DialogueTaskSourceContext,
 ): BehaviorExecutionInstruction {
-  const actions = buildActions(plan, currentUserContent)
+  const actions = buildActions(plan, currentUserContent, sourceContext)
 
   return {
     lifeId,

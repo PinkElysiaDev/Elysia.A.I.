@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "@elysia-ai/observatory",
   "main": "lib/index.js",
   "type": "module",
@@ -26,17 +26,18 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:@elysia-ai/core --external:@elysia-ai/shared --external:koishi-plugin-elysia-ai-runtime"
   },
   "dependencies": {
-    "@elysia-ai/core": "workspace:*",
-    "@elysia-ai/shared": "workspace:*",
-    "koishi-plugin-elysia-ai-runtime": "workspace:*"
+    "@elysia-ai/core": "^0.2.0",
+    "@elysia-ai/shared": "^0.2.0",
+    "koishi-plugin-elysia-ai-runtime": "^0.2.0"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"
   },
   "devDependencies": {
+    "esbuild": "^0.23.1",
     "koishi": "^4.18.0",
     "typescript": "^5.0.0"
   }
