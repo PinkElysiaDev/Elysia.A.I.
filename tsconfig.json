@@ -5,8 +5,8 @@
       "@elysia-ai/kernel": [
         "./packages/@elysia-ai/kernel/src/index.ts"
       ],
-      "@elysia-ai/canonical": [
-        "./packages/@elysia-ai/canonical/src/index.ts"
+      "@elysia-ai/maheshvara": [
+        "./packages/@elysia-ai/maheshvara/src/index.ts"
       ],
       "@elysia-ai/protocol-openai": [
         "./packages/@elysia-ai/protocol-openai/src/index.ts"

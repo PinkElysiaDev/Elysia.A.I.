@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CanonicalRequest } from '@elysia-ai/canonical'
-import { CONTENT_IMAGE, CONTENT_TEXT, CONTENT_TOOL_OUTPUT } from '@elysia-ai/canonical'
+import type { MaheshvaraRequest } from '@elysia-ai/maheshvara'
+import { CONTENT_IMAGE, CONTENT_TEXT, CONTENT_TOOL_OUTPUT } from '@elysia-ai/maheshvara'
 import {
   ChatCompletionsStreamDecoder,
   decodeChatCompletionsResponse,
@@ -14,7 +14,7 @@ function sse(data: string) {
 
 describe('encodeChatCompletionsRequest', () => {
   it('基础消息：system 保留、单文本部件折叠回字符串', () => {
-    const req: CanonicalRequest = {
+    const req: MaheshvaraRequest = {
       model: 'gpt-4o',
       instructions: 'be nice',
       messages: [
@@ -70,10 +70,57 @@ describe('encodeChatCompletionsRequest', () => {
     const tool = messages.find((m) => m['role'] === 'tool')!
     expect(tool).toEqual({ role: 'tool', tool_call_id: 'call_0_0', content: '12:00' })
   })
+
+  it('n > 1 显式拒绝；prompt_cache_retention 透传', () => {
+    expect(() => encodeChatCompletionsRequest({ model: 'm', messages: [], n: 2 })).toThrow(/n=1 only/)
+    const body = encodeChatCompletionsRequest({
+      model: 'm', messages: [], prompt_cache_key: 'k', prompt_cache_retention: { seconds: 3600 },
+    })
+    expect(body['prompt_cache_retention']).toEqual({ seconds: 3600 })
+  })
+
+  it('带 annotations 的单文本部件不折叠为字符串，标注随文本下发', () => {
+    const body = encodeChatCompletionsRequest({
+      model: 'm',
+      messages: [{ role: 'user', content: [{ type: CONTENT_TEXT, text: '引用文', annotations: [{ type: 'url_citation' }] }] }],
+    })
+    const messages = body['messages'] as Array<Record<string, unknown>>
+    expect(messages[0]['content']).toEqual([
+      { type: 'text', text: '引用文', annotations: [{ type: 'url_citation' }] },
+    ])
+  })
+
+  it('未知 part 裸透传仅限 OpenAI 已知 part 类型', () => {
+    const body = encodeChatCompletionsRequest({
+      model: 'm',
+      messages: [{ role: 'user', content: [
+        { type: 'unknown_claude_block', raw: { type: 'server_tool_use', id: 'x' } },
+        { type: 'unknown_openai_part', raw: { type: 'file', file_id: 'f1' } },
+      ] }],
+    })
+    const messages = body['messages'] as Array<Record<string, unknown>>
+    expect(messages[0]['content']).toEqual([{ type: 'file', file_id: 'f1' }])
+  })
+
+  it('推理 parts 重建 reasoning_details：明文逐条 + openai 密文，其他厂商密文丢弃', () => {
+    const body = encodeChatCompletionsRequest({
+      model: 'm',
+      messages: [{ role: 'assistant', content: [
+        { type: 'reasoning', reasoning_text: '想过了', raw: { type: 'reasoning.text', text: '旧的', foo: 1 } },
+        { type: 'reasoning', encrypted_content: 'enc-oai', encrypted_provider: 'openai' },
+        { type: 'reasoning', encrypted_content: 'enc-claude', encrypted_provider: 'anthropic' },
+      ] }],
+    })
+    const messages = body['messages'] as Array<Record<string, unknown>>
+    expect(messages[0]['reasoning_details']).toEqual([
+      { type: 'reasoning.text', text: '想过了', foo: 1 },
+      { type: 'reasoning.encrypted', data: 'enc-oai' },
+    ])
+  })
 })
 
 describe('decodeChatCompletionsResponse', () => {
-  it('典型响应 → canonical（消息项 + usage + finish）', () => {
+  it('典型响应 → maheshvara（消息项 + usage + finish）', () => {
     const response = decodeChatCompletionsResponse({
       id: 'chatcmpl-1', object: 'chat.completion', created: 1755400000, model: 'gpt-4o',
       choices: [{ index: 0, message: { role: 'assistant', content: '你好' }, finish_reason: 'stop' }],
@@ -99,6 +146,45 @@ describe('decodeChatCompletionsResponse', () => {
     const call = response.output?.find((item) => item.type === 'function_call')
     expect(call?.name).toBe('f')
     expect(call?.arguments).toBe('{"a":1}')
+  })
+
+  it('system_fingerprint 解析；usage 未知键透传 + 模态拆分', () => {
+    const response = decodeChatCompletionsResponse({
+      id: 'x', model: 'm', system_fingerprint: 'fp-abc',
+      choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+      usage: {
+        prompt_tokens: 100, completion_tokens: 50, total_tokens: 150,
+        prompt_tokens_details: { cached_tokens: 20, text_tokens: 90, audio_tokens: 10 },
+        completion_tokens_details: { reasoning_tokens: 30, text_tokens: 20 },
+        future_counter: 7,
+      },
+    })
+    expect(response.system_fingerprint).toBe('fp-abc')
+    expect(response.usage).toMatchObject({
+      cached_input_tokens: 20,
+      text_input_tokens: 90,
+      audio_input_tokens: 10,
+      reasoning_tokens: 30,
+      text_output_tokens: 20,
+    })
+    expect(response.usage?.raw).toMatchObject({ future_counter: 7 })
+  })
+
+  it('reasoning_details（OpenRouter 风格）逐条成为推理项，密文记签发方', () => {
+    const response = decodeChatCompletionsResponse({
+      id: 'x', model: 'm',
+      choices: [{ index: 0, finish_reason: 'stop', message: {
+        role: 'assistant', content: '答',
+        reasoning_details: [
+          { type: 'reasoning.text', text: '先想想' },
+          { type: 'reasoning.encrypted', data: 'enc-1' },
+        ],
+      } }],
+    })
+    const reasoningItems = response.output?.filter((item) => item.type === 'reasoning') ?? []
+    expect(reasoningItems).toHaveLength(2)
+    expect(reasoningItems[0].content?.[0]).toMatchObject({ reasoning_text: '先想想' })
+    expect(reasoningItems[1].content?.[0]).toMatchObject({ encrypted_content: 'enc-1', encrypted_provider: 'openai' })
   })
 })
 
@@ -140,5 +226,74 @@ describe('ChatCompletionsStreamDecoder', () => {
     const events = decoder.decode(sse('{"choices":[{"index":0,"delta":{"reasoning_content":"想一想"}}]}'))
     expect(events[0].type).toBe('response.reasoning.delta')
     expect(events[0].reasoning_delta).toBe('想一想')
+  })
+
+  it('[DONE] 前有 choice 却无 finish_reason → response.failed（严格终止语义）', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    const events = [
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{"content":"写到一半"}}]}')),
+      ...decoder.decode(sse('[DONE]')),
+    ]
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error).toMatchObject({ type: 'upstream_stream_error' })
+    expect(events.find((e) => e.type === 'response.completed' && e.finish_reason === undefined)).toBeUndefined()
+  })
+
+  it('finish_reason:"error" → 终态失败并提取错误信息', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    const events = [
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"message":"上游炸了"}}')),
+    ]
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error).toMatchObject({ type: 'upstream_stream_error', message: '上游炸了' })
+    expect(decoder.getSawFinishReason()).toBe(true)
+    expect(events.find((e) => e.type === 'response.completed')).toBeUndefined()
+  })
+
+  it('终块快照：已流式输出只补缺失后缀，已流过的 reasoning 不重发', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    const events = [
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{"role":"assistant"}}]}')),
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{"reasoning_content":"想"}}]}')),
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{"content":"你好"}}]}')),
+      // 终块携带完整 message（快照）：文本=你好世界、推理重复出现
+      ...decoder.decode(sse('{"choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"想","content":"你好世界"},"finish_reason":"stop"}]}')),
+    ]
+    const deltas = events.filter((e) => e.type === 'response.output_text.delta').map((e) => e.delta)
+    expect(deltas).toEqual(['你好', '世界'])
+    const reasoning = events.filter((e) => e.type === 'response.reasoning.delta').map((e) => e.reasoning_delta)
+    expect(reasoning).toEqual(['想'])
+  })
+
+  it('终块快照的工具参数：与累计一致不重发，发散则以完整值走 done', () => {
+    const consistent = new ChatCompletionsStreamDecoder()
+    const events1 = [
+      ...consistent.decode(sse('{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"f","arguments":"{\\"a\\":"}}]}}]}')),
+      ...consistent.decode(sse('{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}')),
+      ...consistent.decode(sse('{"choices":[{"index":0,"message":{"tool_calls":[{"id":"c1","function":{"name":"f","arguments":"{\\"a\\":1}"}}]},"finish_reason":"tool_calls"}]}')),
+    ]
+    expect(events1.filter((e) => e.type === 'response.function_call_arguments.delta').map((e) => e.tool_arguments_delta).join('')).toBe('{"a":1}')
+    // 快照与累计一致：不产生任何额外 delta/done（参数在 finish 时统一补 done）
+    expect(events1.find((e) => e.type === 'response.function_call_arguments.delta' && e.tool_arguments_delta === '{"a":1}')).toBeUndefined()
+
+    const diverged = new ChatCompletionsStreamDecoder()
+    const events2 = [
+      ...diverged.decode(sse('{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c2","function":{"name":"f","arguments":"{\\"a\\":"}}]}}]}')),
+      ...diverged.decode(sse('{"choices":[{"index":0,"message":{"tool_calls":[{"id":"c2","function":{"name":"f","arguments":"{\\"b\\":2}"}}]},"finish_reason":"tool_calls"}]}')),
+    ]
+    const done = events2.find((e) => e.type === 'response.function_call_arguments.done')
+    expect(done?.tool_arguments_done).toBe('{"b":2}')
+  })
+
+  it('合法空补全（content_filter 且无内容）不因缺输出而失败', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    const events = [
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{"role":"assistant"}}]}')),
+      ...decoder.decode(sse('{"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}')),
+      ...decoder.decode(sse('[DONE]')),
+    ]
+    expect(decoder.getTerminal()).toBe(true)
+    expect(events.find((e) => e.type === 'response.failed')).toBeUndefined()
+    expect(events.find((e) => e.type === 'response.completed')?.finish_reason).toBe('content_filter')
   })
 })

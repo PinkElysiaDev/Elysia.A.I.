@@ -1,11 +1,11 @@
 /**
- * Anthropic Messages wire 响应 → canonical。
- * 对齐 canonical_convert.go 的 ClaudeResponseToCanonical / canonicalUsageFromClaudeUsage，
+ * Anthropic Messages wire 响应 → maheshvara。
+ * 对齐 maheshvara_convert.go 的 ClaudeResponseToMaheshvara / maheshvaraUsageFromClaudeUsage，
  * 以及 maheshvara_extensions.go 的 claudeImageBlockToPart / claudeDocumentBlockToPart /
  * claudeMediaBlockToPart。
  */
 
-import type { CanonicalContentPart, CanonicalOutputItem, CanonicalResponse, CanonicalUsage } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraOutputItem, MaheshvaraResponse, MaheshvaraUsage } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_DOCUMENT,
@@ -20,7 +20,7 @@ import {
   OUTPUT_REASONING,
   SIGNATURE_PROVIDER_ANTHROPIC,
   SIGNATURE_PROVIDER_MAHESHVARA,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
@@ -29,15 +29,15 @@ import {
   firstNonEmptyString,
   intValue,
   stringValue,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
-function newCanonicalResponseID(prefix: string): string {
+function newMaheshvaraResponseID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e9)}`
 }
 
-/** Claude image block（{"source":{...}}）→ canonical 图片部件。 */
-export function claudeImageBlockToPart(block: Record<string, unknown>): CanonicalContentPart {
-  const part: CanonicalContentPart = { type: CONTENT_IMAGE, raw: block }
+/** Claude image block（{"source":{...}}）→ maheshvara 图片部件。 */
+export function claudeImageBlockToPart(block: Record<string, unknown>): MaheshvaraContentPart {
+  const part: MaheshvaraContentPart = { type: CONTENT_IMAGE, raw: block }
   const source = asRecord(block['source'])
   if (!source) return part
   switch (stringValue(source['type'])) {
@@ -63,8 +63,8 @@ export function claudeImageBlockToPart(block: Record<string, unknown>): Canonica
   return part
 }
 
-export function claudeDocumentBlockToPart(block: Record<string, unknown>): CanonicalContentPart {
-  const part: CanonicalContentPart = { type: CONTENT_DOCUMENT, raw: block }
+export function claudeDocumentBlockToPart(block: Record<string, unknown>): MaheshvaraContentPart {
+  const part: MaheshvaraContentPart = { type: CONTENT_DOCUMENT, raw: block }
   const source = asRecord(block['source'])
   if (source) {
     part.media_type = firstNonEmptyString(stringValue(source['media_type']), stringValue(source['mimeType']))
@@ -78,8 +78,8 @@ export function claudeDocumentBlockToPart(block: Record<string, unknown>): Canon
   return part
 }
 
-export function claudeMediaBlockToPart(block: Record<string, unknown>, partType: string): CanonicalContentPart {
-  const part: CanonicalContentPart = { type: partType, raw: block }
+export function claudeMediaBlockToPart(block: Record<string, unknown>, partType: string): MaheshvaraContentPart {
+  const part: MaheshvaraContentPart = { type: partType, raw: block }
   const source = asRecord(block['source'])
   if (source) {
     part.media_type = firstNonEmptyString(stringValue(source['media_type']), stringValue(source['mimeType']))
@@ -90,16 +90,20 @@ export function claudeMediaBlockToPart(block: Record<string, unknown>, partType:
   return part
 }
 
-function usageFromClaude(usage: Record<string, unknown> | undefined): CanonicalUsage | undefined {
+function usageFromClaude(usage: Record<string, unknown> | undefined): MaheshvaraUsage | undefined {
   if (!usage) {
     return { input_tokens: 0, output_tokens: 0, total_tokens: 0, source: 'provider_response' }
   }
   const cacheCreation = asRecord(usage['cache_creation']) ?? {}
-  const input = intValue(usage['input_tokens'])
+  let input = intValue(usage['input_tokens'])
     + intValue(usage['cache_read_input_tokens'])
     + intValue(usage['cache_creation_input_tokens'])
-    + intValue(cacheCreation['ephemeral_5m_input_tokens'])
-    + intValue(cacheCreation['ephemeral_1h_input_tokens'])
+  if (intValue(usage['cache_creation_input_tokens']) === 0) {
+    // 官方响应里 cache_creation.ephemeral_* 是 cache_creation_input_tokens 的
+    // 明细拆分，两者同时返回且相等；只在总数缺失时才用明细求和，避免双重计入。
+    input += intValue(cacheCreation['ephemeral_5m_input_tokens'])
+      + intValue(cacheCreation['ephemeral_1h_input_tokens'])
+  }
   const output = intValue(usage['output_tokens'])
   const serverToolUse = asRecord(usage['server_tool_use'])
   return {
@@ -108,17 +112,20 @@ function usageFromClaude(usage: Record<string, unknown> | undefined): CanonicalU
     total_tokens: input + output,
     cached_input_tokens: intValue(usage['cache_read_input_tokens']) || undefined,
     cache_creation_input_tokens: intValue(usage['cache_creation_input_tokens']) || undefined,
+    // 双 TTL 桶明细保真（ephemeral_5m / ephemeral_1h）。
+    cache_creation_5m_tokens: cacheCreation ? intValue(cacheCreation['ephemeral_5m_input_tokens']) || undefined : undefined,
+    cache_creation_1h_tokens: cacheCreation ? intValue(cacheCreation['ephemeral_1h_input_tokens']) || undefined : undefined,
     web_search_call_count: serverToolUse ? intValue(serverToolUse['web_search_requests']) || undefined : undefined,
     source: 'provider_response',
   }
 }
 
-/** Anthropic Messages 响应（JSON.parse 产物）→ canonical 响应。 */
-export function decodeMessagesResponse(body: unknown): CanonicalResponse {
+/** Anthropic Messages 响应（JSON.parse 产物）→ maheshvara 响应。 */
+export function decodeMessagesResponse(body: unknown): MaheshvaraResponse {
   const raw = asRecord(body)
   if (!raw) throw new Error('nil Claude response')
 
-  const out: CanonicalResponse = {
+  const out: MaheshvaraResponse = {
     id: stringValue(raw['id']),
     model: stringValue(raw['model']),
     created_at: Math.floor(Date.now() / 1000),
@@ -127,16 +134,36 @@ export function decodeMessagesResponse(body: unknown): CanonicalResponse {
     stop_reason: stringValue(raw['stop_reason']) || undefined,
     usage: usageFromClaude(asRecord(raw['usage'])),
   }
-  const msg: CanonicalOutputItem = { id: stringValue(raw['id']), type: OUTPUT_MESSAGE, status: 'completed', role: 'assistant', content: [] }
+  const msg: MaheshvaraOutputItem = { id: stringValue(raw['id']), type: OUTPUT_MESSAGE, status: 'completed', role: 'assistant', content: [] }
+  // 按 block 原始出现顺序输出：遇到 thinking/tool_use 等独立 item 前先冲刷
+  // 已累积的 message。Anthropic 要求启用 thinking 时 thinking 块必须是 assistant
+  // 消息的第一块；若把 msg 一律前插，[thinking, text] 会变成 [text, thinking]，
+  // Claude→maheshvara→Claude 往返即违反约束。
+  const flushMsg = (): void => {
+    if ((msg.content?.length ?? 0) > 0) {
+      // 推送副本再重置：避免同一引用被后续块继续写入（Go 侧 flush 后
+      // 新建 msg 对象）。
+      out.output?.push({ ...msg, content: msg.content })
+      msg.content = []
+    }
+  }
   for (const blockValue of asArray(raw['content']) ?? []) {
     const block = asRecord(blockValue)
     if (!block) continue
     switch (stringValue(block['type'])) {
-      case 'text':
-        msg.content?.push({ type: CONTENT_TEXT, text: stringValue(block['text']), raw: block })
+      case 'text': {
+        const part: MaheshvaraContentPart = { type: CONTENT_TEXT, text: stringValue(block['text']), raw: block }
+        const citations = asArray(block['citations'])
+        if (citations && citations.length > 0) {
+          const citationRecords = citations.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => item !== undefined)
+          if (citationRecords.length > 0) part.citations = citationRecords
+        }
+        msg.content?.push(part)
         break
+      }
       case 'thinking': {
-        const part: CanonicalContentPart = {
+        flushMsg()
+        const part: MaheshvaraContentPart = {
           type: CONTENT_REASONING,
           reasoning_text: stringValue(block['thinking']),
           text: stringValue(block['thinking']),
@@ -148,6 +175,8 @@ export function decodeMessagesResponse(body: unknown): CanonicalResponse {
           part.signature = undefined
           part.signature_provider = SIGNATURE_PROVIDER_MAHESHVARA
           part.encrypted_content = envelope.encrypted_content
+          part.encrypted_provider = envelope.provider
+          part.encrypted_model = envelope.model
           part.reasoning_summary = envelope.summary
           if (!part.text) {
             part.text = envelope.text ?? ''
@@ -155,7 +184,7 @@ export function decodeMessagesResponse(body: unknown): CanonicalResponse {
           }
         }
         out.output?.push({
-          id: newCanonicalResponseID('rs'),
+          id: newMaheshvaraResponseID('rs'),
           type: OUTPUT_REASONING,
           status: 'completed',
           content: [part],
@@ -163,20 +192,25 @@ export function decodeMessagesResponse(body: unknown): CanonicalResponse {
         break
       }
       case 'redacted_thinking': {
+        flushMsg()
         const envelope = decodeMaheshvaraReasoningEnvelope(stringValue(block['data']))
         if (envelope) {
           out.output?.push({
-            id: newCanonicalResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
+            id: newMaheshvaraResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
             content: [{
               type: CONTENT_REASONING, text: envelope.text ?? '', reasoning_text: envelope.text ?? '',
               signature_provider: SIGNATURE_PROVIDER_MAHESHVARA,
-              encrypted_content: envelope.encrypted_content, reasoning_summary: envelope.summary,
+              encrypted_content: envelope.encrypted_content,
+              encrypted_provider: envelope.provider,
+              encrypted_model: envelope.model,
+              reasoning_summary: envelope.summary,
             }],
           })
         }
         break
       }
       case 'tool_use':
+        flushMsg()
         out.output?.push({
           id: stringValue(block['id']),
           type: OUTPUT_FUNCTION_CALL,
@@ -201,16 +235,22 @@ export function decodeMessagesResponse(body: unknown): CanonicalResponse {
           raw: block,
         })
         break
+      default: {
+        // server_tool_use / web_search_tool_result 等服务端工具块与未知块：
+        // 整块原样保留（raw 为完整原始对象），Claude 目标渲染时整块回放；
+        // 跨协议目标按未知 part 处理。
+        const blockType = stringValue(block['type'])
+        if (blockType !== '') msg.content?.push({ type: blockType, raw: block })
+        break
+      }
     }
   }
-  if ((msg.content?.length ?? 0) > 0) {
-    out.output?.unshift(msg)
-  }
+  flushMsg()
   return out
 }
 
 /** 提取全部消息文本（网关 output 用）。 */
-export function extractMessageText(response: CanonicalResponse): string {
+export function extractMessageText(response: MaheshvaraResponse): string {
   let out = ''
   for (const item of response.output ?? []) {
     if (item.type !== OUTPUT_MESSAGE) continue

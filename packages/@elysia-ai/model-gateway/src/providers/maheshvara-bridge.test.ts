@@ -41,7 +41,7 @@ describe('网关 provider 基于协议包的端到端链路', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.example.com/v1/chat/completions')
     const sentBody = JSON.parse(init.body as string)
-    // canonical 桥接：system 保留、user 单文本折叠回字符串。
+    // maheshvara 桥接：system 保留、user 单文本折叠回字符串。
     expect(sentBody.messages).toEqual([
       { role: 'system', content: '你是助手' },
       { role: 'user', content: '你好' },

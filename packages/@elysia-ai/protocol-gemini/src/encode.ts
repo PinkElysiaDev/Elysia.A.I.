@@ -1,12 +1,12 @@
 /**
- * canonical → Gemini generateContent wire 请求构造。
- * 对齐 canonical_convert.go 的 CanonicalToGeminiRequest / canonicalMessagesToGemini /
- * canonicalToolsToGemini / canonicalToolChoiceToGemini，以及
- * maheshvara_extensions.go 的 canonicalPartToGeminiPart / geminiToolConfig /
- * applyGeminiRequestExtensionsToBody / canonicalStopSequences。
+ * maheshvara → Gemini generateContent wire 请求构造。
+ * 对齐 maheshvara_convert.go 的 MaheshvaraToGeminiRequest / maheshvaraMessagesToGemini /
+ * maheshvaraToolsToGemini / maheshvaraToolChoiceToGemini，以及
+ * maheshvara_extensions.go 的 maheshvaraPartToGeminiPart / geminiToolConfig /
+ * applyGeminiRequestExtensionsToBody / maheshvaraStopSequences。
  */
 
-import type { CanonicalContentPart, CanonicalRequest, CanonicalResponseFormat, CanonicalTool } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraRequest, MaheshvaraResponseFormat, MaheshvaraTool } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_DOCUMENT,
@@ -19,15 +19,15 @@ import {
   CONTENT_VIDEO,
   SIGNATURE_PROVIDER_GEMINI,
   TOOL_FUNCTION,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
-  canonicalSignatureForProvider,
+  maheshvaraSignatureForProvider,
   collectInstructions,
   firstNonEmptyString,
   imagePartBase64,
   stringValue,
   stringSlice,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
 /**
  * 跨厂商 functionCall 缺失 thoughtSignature 时的占位签名：
@@ -37,7 +37,7 @@ import {
 export const GEMINI_CROSS_PROVIDER_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'
 
 /** 图片部件 → Gemini inlineData（base64）或 fileData（URL）part。 */
-export function imagePartToGeminiPart(part: CanonicalContentPart): Record<string, unknown> | undefined {
+export function imagePartToGeminiPart(part: MaheshvaraContentPart): Record<string, unknown> | undefined {
   const { mediaType, base64 } = imagePartBase64(part)
   if (base64 !== '') {
     return { inlineData: { mimeType: mediaType || 'image/png', data: base64 } }
@@ -52,7 +52,7 @@ export function imagePartToGeminiPart(part: CanonicalContentPart): Record<string
 }
 
 /** 音/视/文件/文档部件 → Gemini inlineData / fileData part。 */
-export function canonicalPartToGeminiPart(part: CanonicalContentPart): Record<string, unknown> | undefined {
+export function maheshvaraPartToGeminiPart(part: MaheshvaraContentPart): Record<string, unknown> | undefined {
   const mediaType = firstNonEmptyString(part.media_type ?? '', part.mime_type ?? '')
   const data = firstNonEmptyString(part.data ?? '', part.audio_base64 ?? '', part.video_base64 ?? '', part.file_data ?? '')
   const uri = firstNonEmptyString(part.uri ?? '', part.audio_url ?? '', part.video_url ?? '', part.image_url ?? '')
@@ -75,14 +75,14 @@ export function canonicalPartToGeminiPart(part: CanonicalContentPart): Record<st
   return undefined
 }
 
-function canonicalStopSequences(value: unknown): string[] | undefined {
+function maheshvaraStopSequences(value: unknown): string[] | undefined {
   if (value === null || value === undefined) return undefined
   const text = stringValue(value)
   if (text !== '') return [text]
   return stringSlice(value)
 }
 
-export function canonicalToolsToGemini(tools: CanonicalTool[]): Array<Record<string, unknown>> {
+export function maheshvaraToolsToGemini(tools: MaheshvaraTool[]): Array<Record<string, unknown>> {
   const declarations: Array<Record<string, unknown>> = []
   const nativeTools: Array<Record<string, unknown>> = []
   for (const tool of tools) {
@@ -121,7 +121,7 @@ function geminiToolConfig(choiceType: string, name: string): Record<string, unkn
   return { functionCallingConfig: config }
 }
 
-export function canonicalToolChoiceToGemini(value: unknown): Record<string, unknown> | undefined {
+export function maheshvaraToolChoiceToGemini(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const object = value as Record<string, unknown>
     if (object['functionCallingConfig'] !== undefined) return object
@@ -136,14 +136,14 @@ export function canonicalToolChoiceToGemini(value: unknown): Record<string, unkn
   return geminiToolConfig(stringValue(value).toLowerCase(), '')
 }
 
-function applyResponseFormatToGemini(cfg: Record<string, unknown>, f: CanonicalResponseFormat): void {
+function applyResponseFormatToGemini(cfg: Record<string, unknown>, f: MaheshvaraResponseFormat): void {
   if (f.type === 'json_schema' || f.type === 'json_object') {
     cfg['responseMimeType'] = 'application/json'
     if (f.schema) cfg['responseSchema'] = f.schema
   }
 }
 
-function applyGeminiRequestExtensions(out: Record<string, unknown>, req: CanonicalRequest): void {
+function applyGeminiRequestExtensions(out: Record<string, unknown>, req: MaheshvaraRequest): void {
   if ((req.safety_settings?.length ?? 0) > 0) {
     const settings: Array<Record<string, unknown>> = []
     for (const setting of req.safety_settings!) {
@@ -164,7 +164,7 @@ function applyGeminiRequestExtensions(out: Record<string, unknown>, req: Canonic
   if (req.logprobs !== undefined) generationConfig['responseLogprobs'] = req.logprobs
   if (req.top_logprobs !== undefined) generationConfig['logprobs'] = req.top_logprobs
   if ((req.modalities?.length ?? 0) > 0) generationConfig['responseModalities'] = req.modalities
-  const stopSequences = canonicalStopSequences(req.stop)
+  const stopSequences = maheshvaraStopSequences(req.stop)
   if (stopSequences && stopSequences.length > 0) generationConfig['stopSequences'] = stopSequences
   if (Object.keys(generationConfig).length > 0) out['generationConfig'] = generationConfig
 }
@@ -179,7 +179,7 @@ function asGenerationConfig(out: Record<string, unknown>): Record<string, unknow
   return cfg
 }
 
-function canonicalMessagesToGemini(req: CanonicalRequest): Array<Record<string, unknown>> {
+function maheshvaraMessagesToGemini(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   // functionResponse.name 必须是函数名而非 tool_use_id：先建 id→name 映射。
   const toolCallNames = new Map<string, string>()
   for (const msg of req.messages ?? []) {
@@ -217,7 +217,7 @@ function canonicalMessagesToGemini(req: CanonicalRequest): Array<Record<string, 
         case CONTENT_VIDEO:
         case CONTENT_FILE:
         case CONTENT_DOCUMENT: {
-          const p = canonicalPartToGeminiPart(part)
+          const p = maheshvaraPartToGeminiPart(part)
           if (p) parts.push(p)
           break
         }
@@ -225,7 +225,7 @@ function canonicalMessagesToGemini(req: CanonicalRequest): Array<Record<string, 
           const reasoningText = part.reasoning_text || part.text || ''
           if (reasoningText) {
             const thought: Record<string, unknown> = { text: reasoningText, thought: true }
-            const signature = canonicalSignatureForProvider(part.signature, part.signature_provider, SIGNATURE_PROVIDER_GEMINI)
+            const signature = maheshvaraSignatureForProvider(part.signature, part.signature_provider, SIGNATURE_PROVIDER_GEMINI)
             if (signature !== '') thought['thoughtSignature'] = signature
             parts.push(thought)
           }
@@ -288,7 +288,7 @@ function canonicalMessagesToGemini(req: CanonicalRequest): Array<Record<string, 
       if (call.id) functionCall['id'] = call.id
       const part: Record<string, unknown> = { functionCall }
       if (!firstFunctionCallPart) firstFunctionCallPart = part
-      const signature = canonicalSignatureForProvider(call.thought_signature, call.thought_signature_provider, SIGNATURE_PROVIDER_GEMINI)
+      const signature = maheshvaraSignatureForProvider(call.thought_signature, call.thought_signature_provider, SIGNATURE_PROVIDER_GEMINI)
       if (signature !== '') part['thoughtSignature'] = signature
       parts.push(part)
     }
@@ -356,9 +356,14 @@ function geminiFunctionResponsePayload(output: string): Record<string, unknown> 
   return { content: output }
 }
 
-/** canonical 请求 → Gemini generateContent 请求体对象。 */
-export function encodeGenerateContentRequest(req: CanonicalRequest): Record<string, unknown> {
-  const contents = canonicalMessagesToGemini(req)
+/** maheshvara 请求 → Gemini generateContent 请求体对象。 */
+export function encodeGenerateContentRequest(req: MaheshvaraRequest): Record<string, unknown> {
+  // 单候选契约（对齐 Go 解析侧 candidateCount>1 拒绝）：多候选会绕过
+  // 单 candidate 解码路径，直接拒绝而非静默取第一个。
+  if (req.n !== undefined && req.n > 1) {
+    throw new Error(`gemini generateContent supports a single candidate only, got n=${req.n}`)
+  }
+  const contents = maheshvaraMessagesToGemini(req)
   const out: Record<string, unknown> = { contents }
   const instructions = collectInstructions(req)
   if (instructions !== '') {
@@ -371,9 +376,9 @@ export function encodeGenerateContentRequest(req: CanonicalRequest): Record<stri
   if ((req.max_output_tokens ?? 0) > 0) cfg['maxOutputTokens'] = req.max_output_tokens
   if (req.response_format) applyResponseFormatToGemini(cfg, req.response_format)
   if (Object.keys(cfg).length > 0) out['generationConfig'] = cfg
-  if ((req.tools?.length ?? 0) > 0) out['tools'] = canonicalToolsToGemini(req.tools!)
+  if ((req.tools?.length ?? 0) > 0) out['tools'] = maheshvaraToolsToGemini(req.tools!)
   if (req.tool_choice !== undefined && req.tool_choice !== null) {
-    const toolConfig = canonicalToolChoiceToGemini(req.tool_choice)
+    const toolConfig = maheshvaraToolChoiceToGemini(req.tool_choice)
     if (toolConfig) out['toolConfig'] = toolConfig
   }
   if (req.thinking?.enabled) {

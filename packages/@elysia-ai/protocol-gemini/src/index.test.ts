@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CanonicalRequest } from '@elysia-ai/canonical'
-import { CONTENT_TEXT, CONTENT_TOOL_OUTPUT } from '@elysia-ai/canonical'
+import type { MaheshvaraRequest } from '@elysia-ai/maheshvara'
+import { CONTENT_TEXT, CONTENT_TOOL_OUTPUT } from '@elysia-ai/maheshvara'
 import {
   GeminiStreamDecoder,
   decodeGenerateContentResponse,
@@ -14,7 +14,7 @@ function sse(data: string) {
 
 describe('encodeGenerateContentRequest', () => {
   it('system 消息进 systemInstruction；assistant → model；连续同角色合并', () => {
-    const req: CanonicalRequest = {
+    const req: MaheshvaraRequest = {
       model: 'gemini-x',
       messages: [
         { role: 'system', content: [{ type: CONTENT_TEXT, text: 'sys' }] },
@@ -102,5 +102,76 @@ describe('GeminiStreamDecoder', () => {
     const events = decoder.decode(sse('{"promptFeedback":{"blockReason":"SAFETY"}}'))
     expect(events[0].type).toBe('response.failed')
     expect(events[0].error?.type).toBe('content_filter')
+  })
+})
+
+describe('elysia-api 深度更新同步（v0.2.0）', () => {
+  it('groundingMetadata → 首个文本 part 的 annotations（gemini_grounding_metadata 包装）', () => {
+    const response = decodeGenerateContentResponse({
+      candidates: [{
+        content: { parts: [{ text: '答案' }, { text: '补充' }] },
+        finishReason: 'STOP',
+        groundingMetadata: { webSearchQueries: ['q'], groundingChunks: [{ web: { uri: 'https://e' } }] },
+      }],
+      usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2, totalTokenCount: 5 },
+    })
+    const message = response.output?.find((item) => item.type === 'message')
+    expect(message?.content?.[0]?.annotations).toEqual([
+      { gemini_grounding_metadata: { webSearchQueries: ['q'], groundingChunks: [{ web: { uri: 'https://e' } }] } },
+    ])
+    // 只挂首个文本 part
+    expect(message?.content?.[1]?.annotations).toBeUndefined()
+  })
+
+  it('流式 grounding 挂到同 chunk 首个非 thought 文本事件', () => {
+    const decoder = new GeminiStreamDecoder()
+    const events = decoder.decode(sse(JSON.stringify({
+      candidates: [{
+        index: 0,
+        content: { parts: [{ text: '想一想', thought: true }, { text: '答案' }] },
+        groundingMetadata: { webSearchQueries: ['q'] },
+      }],
+    })))
+    const textEvents = events.filter((e) => e.type === 'response.output_text.delta')
+    expect(textEvents).toHaveLength(1)
+    expect(textEvents[0].annotations).toEqual([{ gemini_grounding_metadata: { webSearchQueries: ['q'] } }])
+    const thoughtEvents = events.filter((e) => e.type === 'response.reasoning.delta')
+    expect(thoughtEvents[0].annotations).toBeUndefined()
+  })
+
+  it('无 id 的 functionCall 合成 id 用解码器级单调计数器（跨 chunk 不撞）', () => {
+    const decoder = new GeminiStreamDecoder()
+    const events = [
+      ...decoder.decode(sse(JSON.stringify({
+        candidates: [{ index: 0, content: { parts: [{ text: 'a' }, { functionCall: { name: 'f1', args: {} } }] } }],
+      }))),
+      ...decoder.decode(sse(JSON.stringify({
+        candidates: [{ index: 0, content: { parts: [{ text: 'b' }, { functionCall: { name: 'f2', args: {} } }] } }],
+      }))),
+    ]
+    const ids = events.filter((e) => e.type === 'response.function_call.added').map((e) => e.tool_call_id)
+    expect(ids).toEqual(['call_syn_0', 'call_syn_1'])
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it('n > 1 显式拒绝（单候选契约）', () => {
+    expect(() => encodeGenerateContentRequest({ model: 'gemini-x', messages: [], n: 3 })).toThrow(/single candidate/)
+  })
+
+  it('usage 模态拆分与工具/thought token 计入', () => {
+    const response = decodeGenerateContentResponse({
+      candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+      usageMetadata: {
+        promptTokenCount: 90, toolUsePromptTokenCount: 10,
+        candidatesTokenCount: 60, thoughtsTokenCount: 20, totalTokenCount: 180,
+        promptTokensDetails: [{ modality: 'TEXT', tokenCount: 80 }, { modality: 'IMAGE', tokenCount: 10 }],
+        candidatesTokensDetails: [{ modality: 'TEXT', tokenCount: 40 }],
+      },
+    })
+    expect(response.usage).toMatchObject({
+      input_tokens: 100, output_tokens: 80, total_tokens: 180,
+      reasoning_tokens: 20, tool_use_tokens: 10,
+      text_input_tokens: 80, image_input_tokens: 10, text_output_tokens: 40,
+    })
   })
 })

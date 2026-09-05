@@ -1,4 +1,4 @@
-export * from './canonical.js'
+export * from './maheshvara.js'
 export * from './sse.js'
 export * from './constants.js'
 export * from './accessors.js'

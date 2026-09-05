@@ -10,7 +10,7 @@
   ],
   "references": [
     {
-      "path": "../canonical"
+      "path": "../maheshvara"
     },
     {
       "path": "../protocol-openai"

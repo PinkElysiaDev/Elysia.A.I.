@@ -1,12 +1,12 @@
 /**
- * canonical → OpenAI Chat Completions wire 请求构造。
- * 逐行为对齐 Elysia-Api canonical_convert.go 的
- * CanonicalToOpenAIChatRequest / canonicalMessagesToOpenAI /
- * canonicalToolsToOpenAI / canonicalResponseFormatToOpenAI /
+ * maheshvara → OpenAI Chat Completions wire 请求构造。
+ * 逐行为对齐 Elysia-Api maheshvara_convert.go 的
+ * MaheshvaraToOpenAIChatRequest / maheshvaraMessagesToOpenAI /
+ * maheshvaraToolsToOpenAI / maheshvaraResponseFormatToOpenAI /
  * applyOpenAIRequestExtensionsToBody（maheshvara_extensions.go）。
  */
 
-import type { CanonicalContentPart, CanonicalRequest, CanonicalResponseFormat, CanonicalTool } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraRequest, MaheshvaraResponseFormat, MaheshvaraTool } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_DOCUMENT,
@@ -19,8 +19,8 @@ import {
   CONTENT_VIDEO,
   SIGNATURE_PROVIDER_GEMINI,
   TOOL_FUNCTION,
-} from '@elysia-ai/canonical'
-import { canonicalSignatureForProvider, firstNonEmptyString, imagePartBase64 } from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
+import { maheshvaraSignatureForProvider, asRecord, firstNonEmptyString, imagePartBase64, stringValue } from '@elysia-ai/maheshvara'
 
 /** 保留非空原始 ID，否则合成确定性 ID（Go ensureToolCallID，与 Gemini 解析约定一致）。 */
 export function ensureToolCallID(id: string | undefined, msgIndex: number, callIndex: number): string {
@@ -29,14 +29,14 @@ export function ensureToolCallID(id: string | undefined, msgIndex: number, callI
 }
 
 /** 音频 MIME → OpenAI input_audio.format 白名单（仅 wav | mp3）。 */
-export function audioInputFormat(part: CanonicalContentPart): string {
+export function audioInputFormat(part: MaheshvaraContentPart): string {
   const mime = firstNonEmptyString(part.media_type ?? '', part.mime_type ?? '').toLowerCase()
   if (mime.includes('wav')) return 'wav'
   return 'mp3'
 }
 
 /** 图片部件 → OpenAI image_url 的 url 值（http(s) 原样；base64 组装 data: URI）。 */
-function imagePartToOpenAIURL(part: CanonicalContentPart): string {
+function imagePartToOpenAIURL(part: MaheshvaraContentPart): string {
   const uri = firstNonEmptyString(part.image_url ?? '', part.uri ?? '')
   if (uri !== '') return uri
   if (part.image_base64) {
@@ -46,16 +46,40 @@ function imagePartToOpenAIURL(part: CanonicalContentPart): string {
   return ''
 }
 
-/** canonical 部件数组 → OpenAI 消息 content（纯文本回退为字符串，Go contentPartsToInterface）。 */
-export function contentPartsToOpenAI(parts: CanonicalContentPart[]): string | unknown[] {
+/** 判断是否为 OpenAI chat 线的已知 content part 类型。 */
+function isOpenAIContentPartType(typeName: string): boolean {
+  switch (typeName) {
+    case 'text':
+    case 'image_url':
+    case 'input_audio':
+    case 'output_audio':
+    case 'video_url':
+    case 'file':
+    case 'tool_result':
+      return true
+    default:
+      return false
+  }
+}
+
+/** maheshvara 部件数组 → OpenAI 消息 content（纯文本回退为字符串，Go contentPartsToInterface）。 */
+export function contentPartsToOpenAI(parts: MaheshvaraContentPart[]): string | unknown[] {
   if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === CONTENT_TEXT) return parts[0].text ?? ''
+  if (parts.length === 1 && parts[0].type === CONTENT_TEXT && (parts[0].annotations?.length ?? 0) === 0) {
+    return parts[0].text ?? ''
+  }
   const out: unknown[] = []
   for (const part of parts) {
     switch (part.type) {
-      case CONTENT_TEXT:
-        out.push({ type: 'text', text: part.text ?? '' })
+      case CONTENT_TEXT: {
+        const text: Record<string, unknown> = { type: 'text', text: part.text ?? '' }
+        if ((part.annotations?.length ?? 0) > 0) {
+          // 出处标注（url_citation / grounding 包装等）原样随文本下发。
+          text['annotations'] = part.annotations
+        }
+        out.push(text)
         break
+      }
       case CONTENT_IMAGE: {
         const url = imagePartToOpenAIURL(part)
         if (url !== '') {
@@ -109,14 +133,43 @@ export function contentPartsToOpenAI(parts: CanonicalContentPart[]): string | un
         break
       }
       default: {
-        if (part.raw !== undefined && part.raw !== null) out.push(part.raw)
+        // 未知 part 的裸透传仅限 OpenAI 线已知的内容 part 类型——把 Claude 的
+        // server_tool_use 等块原样发给 OpenAI 系上游会成为非法 content part。
+        const raw = asRecord(part.raw)
+        if (raw && isOpenAIContentPartType(stringValue(raw['type']))) out.push(raw)
       }
     }
   }
   return out
 }
 
-function canonicalMessagesToOpenAI(req: CanonicalRequest): Array<Record<string, unknown>> {
+/**
+ * 把推理 parts 重建为 reasoning_details 数组（原始条目字段优先，text 用最新
+ * 值；密文仅回放 openai 签发或来源不明的——其余厂商密文发给 chat 系上游
+ * 只会被拒）。
+ */
+function maheshvaraReasoningToOpenAIDetails(parts: MaheshvaraContentPart[]): Array<Record<string, unknown>> {
+  const details: Array<Record<string, unknown>> = []
+  for (const part of parts) {
+    if (part.type !== CONTENT_REASONING) continue
+    const text = firstNonEmptyString(part.reasoning_text ?? '', part.text ?? '')
+    if (text !== '') {
+      let detail: Record<string, unknown> = { type: 'reasoning.text', text }
+      const raw = asRecord(part.raw)
+      const rawType = raw ? stringValue(raw['type']) : ''
+      if (raw && rawType.startsWith('reasoning.')) {
+        detail = { ...raw, text }
+      }
+      details.push(detail)
+    }
+    if (part.encrypted_content && (!part.encrypted_provider || part.encrypted_provider.toLowerCase() === 'openai')) {
+      details.push({ type: 'reasoning.encrypted', data: part.encrypted_content })
+    }
+  }
+  return details
+}
+
+function maheshvaraMessagesToOpenAI(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   const messages: Array<Record<string, unknown>> = []
   if (req.instructions) {
     messages.push({ role: 'system', content: req.instructions })
@@ -124,13 +177,15 @@ function canonicalMessagesToOpenAI(req: CanonicalRequest): Array<Record<string, 
   const allMessages = req.messages ?? []
   for (let msgIndex = 0; msgIndex < allMessages.length; msgIndex++) {
     const msg = allMessages[msgIndex]
-    const visibleParts: CanonicalContentPart[] = []
-    const toolOutputs: CanonicalContentPart[] = []
+    const visibleParts: MaheshvaraContentPart[] = []
+    const toolOutputs: MaheshvaraContentPart[] = []
+    const reasoningParts: MaheshvaraContentPart[] = []
     let reasoning = ''
     let refusal = ''
     for (const part of msg.content ?? []) {
       if (part.type === CONTENT_REASONING) {
         reasoning += firstNonEmptyString(part.reasoning_text ?? '', part.text ?? '')
+        reasoningParts.push(part)
         continue
       }
       if (part.type === CONTENT_REFUSAL) {
@@ -160,6 +215,10 @@ function canonicalMessagesToOpenAI(req: CanonicalRequest): Array<Record<string, 
         out['content'] = null
       }
       if (reasoning !== '') out['reasoning_content'] = reasoning
+      // OpenRouter 风格推理明细：逐条回放（含加密思考，provider 门控），
+      // 保真优于标量 reasoning_content。
+      const details = maheshvaraReasoningToOpenAIDetails(reasoningParts)
+      if (details.length > 0) out['reasoning_details'] = details
       if (refusal !== '') out['refusal'] = refusal
       if (msg.name) out['name'] = msg.name
       if (msg.metadata !== undefined) out['metadata'] = msg.metadata
@@ -178,7 +237,7 @@ function canonicalMessagesToOpenAI(req: CanonicalRequest): Array<Record<string, 
             type: callType,
             function: { name: call.name, arguments: argumentsText },
           }
-          const signature = canonicalSignatureForProvider(call.thought_signature, call.thought_signature_provider, SIGNATURE_PROVIDER_GEMINI)
+          const signature = maheshvaraSignatureForProvider(call.thought_signature, call.thought_signature_provider, SIGNATURE_PROVIDER_GEMINI)
           if (signature !== '') {
             wireCall['extra_content'] = { google: { thought_signature: signature } }
           }
@@ -201,7 +260,7 @@ function canonicalMessagesToOpenAI(req: CanonicalRequest): Array<Record<string, 
   return messages
 }
 
-export function canonicalToolsToOpenAI(tools: CanonicalTool[]): Array<Record<string, unknown>> {
+export function maheshvaraToolsToOpenAI(tools: MaheshvaraTool[]): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
   for (const tool of tools) {
     if (tool.type !== TOOL_FUNCTION) {
@@ -219,7 +278,7 @@ export function canonicalToolsToOpenAI(tools: CanonicalTool[]): Array<Record<str
   return out
 }
 
-export function canonicalToolChoiceToOpenAI(value: unknown): unknown {
+export function maheshvaraToolChoiceToOpenAI(value: unknown): unknown {
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const object = value as Record<string, unknown>
     const config = object['functionCallingConfig']
@@ -248,7 +307,7 @@ export function canonicalToolChoiceToOpenAI(value: unknown): unknown {
   return value
 }
 
-function canonicalResponseFormatToOpenAI(f: CanonicalResponseFormat): Record<string, unknown> {
+function maheshvaraResponseFormatToOpenAI(f: MaheshvaraResponseFormat): Record<string, unknown> {
   const raw = f.raw
   if (raw && (raw as Record<string, unknown>)['json_schema'] !== undefined) return raw as Record<string, unknown>
   if (f.type === 'json_schema') {
@@ -265,7 +324,7 @@ function canonicalResponseFormatToOpenAI(f: CanonicalResponseFormat): Record<str
   return { type: f.type }
 }
 
-function applyOpenAIRequestExtensions(out: Record<string, unknown>, req: CanonicalRequest): void {
+function applyOpenAIRequestExtensions(out: Record<string, unknown>, req: MaheshvaraRequest): void {
   if (req.n !== undefined) out['n'] = req.n
   if (req.seed !== undefined) out['seed'] = req.seed
   if (req.presence_penalty !== undefined) out['presence_penalty'] = req.presence_penalty
@@ -285,14 +344,19 @@ function applyOpenAIRequestExtensions(out: Record<string, unknown>, req: Canonic
   if (req.store !== undefined) out['store'] = req.store
 }
 
-/** canonical 请求 → Chat Completions 请求体对象（调用方负责 JSON.stringify 与发送）。 */
-export function encodeChatCompletionsRequest(req: CanonicalRequest): Record<string, unknown> {
+/** maheshvara 请求 → Chat Completions 请求体对象（调用方负责 JSON.stringify 与发送）。 */
+export function encodeChatCompletionsRequest(req: MaheshvaraRequest): Record<string, unknown> {
   if (!req.model?.trim()) {
     throw new Error('cannot render openai_chat request without model')
   }
+  // 网关一次只出一份候选：显式拒绝 n > 1，替换「发送 n 却只取 choices[0]」
+  // 的静默截断（对齐 Go 解析侧的拒绝语义）。
+  if (req.n !== undefined && req.n > 1) {
+    throw new Error(`openai chat completions supports n=1 only, got ${req.n}`)
+  }
   const out: Record<string, unknown> = {
     model: req.model,
-    messages: canonicalMessagesToOpenAI(req),
+    messages: maheshvaraMessagesToOpenAI(req),
   }
   if ((req.max_output_tokens ?? 0) > 0) out['max_tokens'] = req.max_output_tokens
   if (req.temperature !== undefined) out['temperature'] = req.temperature
@@ -305,15 +369,18 @@ export function encodeChatCompletionsRequest(req: CanonicalRequest): Record<stri
     out['stream_options'] = { include_usage: req.stream_options.include_usage }
   }
   if (req.stop !== undefined && req.stop !== null) out['stop'] = req.stop
-  if ((req.tools?.length ?? 0) > 0) out['tools'] = canonicalToolsToOpenAI(req.tools!)
+  if ((req.tools?.length ?? 0) > 0) out['tools'] = maheshvaraToolsToOpenAI(req.tools!)
   if (req.tool_choice !== undefined && req.tool_choice !== null) {
-    out['tool_choice'] = canonicalToolChoiceToOpenAI(req.tool_choice)
+    out['tool_choice'] = maheshvaraToolChoiceToOpenAI(req.tool_choice)
   }
   if (req.parallel_tool_calls !== undefined) out['parallel_tool_calls'] = req.parallel_tool_calls
-  if (req.response_format) out['response_format'] = canonicalResponseFormatToOpenAI(req.response_format)
+  if (req.response_format) out['response_format'] = maheshvaraResponseFormatToOpenAI(req.response_format)
   if (req.reasoning?.effort) out['reasoning_effort'] = req.reasoning.effort
   if (req.user) out['user'] = req.user
   if (req.prompt_cache_key) out['prompt_cache_key'] = req.prompt_cache_key
+  if (req.prompt_cache_retention !== undefined && req.prompt_cache_retention !== null) {
+    out['prompt_cache_retention'] = req.prompt_cache_retention
+  }
   applyOpenAIRequestExtensions(out, req)
   return out
 }

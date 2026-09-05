@@ -1,5 +1,5 @@
 /**
- * canonical 内容类型 / 输入项类型 / 输出项类型 / 流事件类型常量。
+ * maheshvara 内容类型 / 输入项类型 / 输出项类型 / 流事件类型常量。
  * 与 Elysia-Api（Go）relay/constants.go 逐一对齐。
  */
 
@@ -58,3 +58,9 @@ export const EVENT_OUTPUT_ITEM_DONE = 'response.output_item.done'
 export const EVENT_USAGE_DELTA = 'response.usage.delta'
 export const EVENT_RESPONSE_COMPLETED = 'response.completed'
 export const EVENT_RESPONSE_FAILED = 'response.failed'
+
+/** 承载引用/出处标注增量（Claude citations_delta / 通用标注通道）。 */
+export const EVENT_ANNOTATION_DELTA = 'annotation.delta'
+
+/** Gemini groundingMetadata 在 text 事件 annotations 里的包装键。 */
+export const ANNOTATION_GEMINI_GROUNDING = 'gemini_grounding_metadata'

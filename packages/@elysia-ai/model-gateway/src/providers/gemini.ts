@@ -7,7 +7,7 @@ import {
   normalizeGeminiFinishReason,
   readResponseBody,
 } from './utils.js'
-import { toCanonicalRequest } from './canonical-bridge.js'
+import { toMaheshvaraRequest } from './maheshvara-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1beta'
 
@@ -34,7 +34,7 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const canonical = toCanonicalRequest(request, {
+      const maheshvara = toMaheshvaraRequest(request, {
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
@@ -42,7 +42,7 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/models/${model}:generateContent?key=${config.apiKey}`
-      const body = encodeGenerateContentRequest(canonical)
+      const body = encodeGenerateContentRequest(maheshvara)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -62,9 +62,9 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
         throw createProviderApiError('Gemini', config.id, json, json.error.code)
       }
 
-      const canonicalResponse = decodeGenerateContentResponse(json)
-      const output = extractMessageText(canonicalResponse)
-      const finishReason = normalizeGeminiFinishReason(canonicalResponse.stop_reason)
+      const maheshvaraResponse = decodeGenerateContentResponse(json)
+      const output = extractMessageText(maheshvaraResponse)
+      const finishReason = normalizeGeminiFinishReason(maheshvaraResponse.stop_reason)
       const latencyMs = Date.now() - startedAt
 
       return {
@@ -80,14 +80,14 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: canonicalResponse.usage?.input_tokens,
-          outputTokens: canonicalResponse.usage?.output_tokens,
-          totalTokens: canonicalResponse.usage?.total_tokens,
+          inputTokens: maheshvaraResponse.usage?.input_tokens,
+          outputTokens: maheshvaraResponse.usage?.output_tokens,
+          totalTokens: maheshvaraResponse.usage?.total_tokens,
         },
         finishReason,
         latencyMs,
         metadata: {
-          modelVersion: canonicalResponse.model,
+          modelVersion: maheshvaraResponse.model,
           providerLatencyMs: latencyMs,
           latencyMs,
         },

@@ -16,7 +16,7 @@ export default defineConfig({
     reporters: ['verbose'],
     alias: {
       '@elysia-ai/kernel': resolve(__dirname, 'packages/@elysia-ai/kernel/src/index.ts'),
-      '@elysia-ai/canonical': resolve(__dirname, 'packages/@elysia-ai/canonical/src/index.ts'),
+      '@elysia-ai/maheshvara': resolve(__dirname, 'packages/@elysia-ai/maheshvara/src/index.ts'),
       '@elysia-ai/protocol-openai': resolve(__dirname, 'packages/@elysia-ai/protocol-openai/src/index.ts'),
       '@elysia-ai/protocol-anthropic': resolve(__dirname, 'packages/@elysia-ai/protocol-anthropic/src/index.ts'),
       '@elysia-ai/protocol-gemini': resolve(__dirname, 'packages/@elysia-ai/protocol-gemini/src/index.ts'),

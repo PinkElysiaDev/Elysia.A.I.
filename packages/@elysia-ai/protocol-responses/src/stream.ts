@@ -1,13 +1,14 @@
 /**
- * OpenAI Responses SSE 流 → canonical 流事件。
+ * OpenAI Responses SSE 流 → maheshvara 流事件。
  * 逐行为对齐 maheshvara_stream_decoder_responses.go。
- * 复用 decodeResponsesResponse 完成 response/item/part 三级对象的 canonical 化。
+ * 复用 decodeResponsesResponse 完成 response/item/part 三级对象的 maheshvara 化。
  */
 
-import type { CanonicalContentPart, CanonicalOutputItem, CanonicalResponse, CanonicalStreamEvent, SSEEvent } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraOutputItem, MaheshvaraResponse, MaheshvaraStreamEvent, SSEEvent } from '@elysia-ai/maheshvara'
 import {
   EVENT_FUNCTION_CALL_ARGUMENTS_DELTA,
   EVENT_FUNCTION_CALL_ARGUMENTS_DONE,
+  EVENT_REASONING_SIGNATURE_DELTA,
   EVENT_REFUSAL_DELTA,
   EVENT_REFUSAL_DONE,
   EVENT_RESPONSE_COMPLETED,
@@ -20,26 +21,27 @@ import {
   EVENT_TEXT_DONE,
   EVENT_USAGE_DELTA,
   OUTPUT_FUNCTION_CALL,
-} from '@elysia-ai/canonical'
-import { asRecord, firstNonEmptyString, int64Value, intValue, stringValue, usageFromRawMap } from '@elysia-ai/canonical'
+  SIGNATURE_PROVIDER_OPENAI,
+} from '@elysia-ai/maheshvara'
+import { asRecord, firstNonEmptyString, int64Value, intValue, stringValue, usageFromRawMap } from '@elysia-ai/maheshvara'
 import { decodeResponsesResponse } from './decode.js'
 
-function responsesMapToCanonical(raw: Record<string, unknown> | undefined): CanonicalResponse | undefined {
+function responsesMapToMaheshvara(raw: Record<string, unknown> | undefined): MaheshvaraResponse | undefined {
   if (!raw) return undefined
   return decodeResponsesResponse(raw)
 }
 
-function responsesOutputMapToCanonical(raw: Record<string, unknown> | undefined): CanonicalOutputItem | undefined {
+function responsesOutputMapToMaheshvara(raw: Record<string, unknown> | undefined): MaheshvaraOutputItem | undefined {
   if (!raw) return undefined
-  const response = responsesMapToCanonical({
+  const response = responsesMapToMaheshvara({
     id: 'stream', object: 'response', status: 'in_progress', created_at: 0, model: '', output: [raw],
   })
   return response?.output?.[0]
 }
 
-function responsesContentMapToCanonical(raw: Record<string, unknown> | undefined): CanonicalContentPart | undefined {
+function responsesContentMapToMaheshvara(raw: Record<string, unknown> | undefined): MaheshvaraContentPart | undefined {
   if (!raw) return undefined
-  const item = responsesOutputMapToCanonical({
+  const item = responsesOutputMapToMaheshvara({
     id: 'stream_part', type: 'message', status: 'in_progress', role: 'assistant', content: [raw],
   })
   return item?.content?.[0]
@@ -51,6 +53,7 @@ export class ResponsesStreamDecoder {
   private terminal = false
   private sawWireEvent = false
   private sawOutput = false
+  private sawFinishReason = false
 
   getTerminal(): boolean {
     return this.terminal
@@ -64,11 +67,16 @@ export class ResponsesStreamDecoder {
     return this.sawOutput
   }
 
-  private baseEvent(type: string, raw: Record<string, unknown>): CanonicalStreamEvent {
+  /** 上游是否发过真实终态（response.completed），区别于合成 [DONE]。 */
+  getSawFinishReason(): boolean {
+    return this.sawFinishReason
+  }
+
+  private baseEvent(type: string, raw: Record<string, unknown>): MaheshvaraStreamEvent {
     return { type, response_id: this.responseID, model: this.model, raw }
   }
 
-  decode(event: SSEEvent): CanonicalStreamEvent[] {
+  decode(event: SSEEvent): MaheshvaraStreamEvent[] {
     const data = event.data.trim()
     if (data === '') return []
     this.sawWireEvent = true
@@ -100,7 +108,7 @@ export class ResponsesStreamDecoder {
     return events
   }
 
-  private decodeResponses(raw: Record<string, unknown>): CanonicalStreamEvent[] {
+  private decodeResponses(raw: Record<string, unknown>): MaheshvaraStreamEvent[] {
     const typeName = stringValue(raw['type'])
     const responseValue = asRecord(raw['response'])
     this.responseID = firstNonEmptyString(stringValue(raw['response_id']), responseValue ? stringValue(responseValue['id']) : '', this.responseID)
@@ -116,13 +124,13 @@ export class ResponsesStreamDecoder {
       case EVENT_RESPONSE_CREATED:
       case EVENT_RESPONSE_IN_PROGRESS: {
         if (responseValue) {
-          event.response = responsesMapToCanonical(responseValue)
+          event.response = responsesMapToMaheshvara(responseValue)
         }
         return [event]
       }
       case 'response.output_item.added':
       case 'response.output_item.done': {
-        const item = responsesOutputMapToCanonical(asRecord(raw['item']))
+        const item = responsesOutputMapToMaheshvara(asRecord(raw['item']))
         if (!item) return []
         event.output_item = item
         if (item.type === OUTPUT_FUNCTION_CALL) {
@@ -135,7 +143,7 @@ export class ResponsesStreamDecoder {
       }
       case 'response.content_part.added':
       case 'response.content_part.done': {
-        const part = responsesContentMapToCanonical(asRecord(raw['part']))
+        const part = responsesContentMapToMaheshvara(asRecord(raw['part']))
         if (!part) return []
         event.content_part = part
         return [event]
@@ -162,6 +170,16 @@ export class ResponsesStreamDecoder {
       case 'response.reasoning_text.done':
         event.reasoning_done = firstNonEmptyString(stringValue(raw['text']), stringValue(raw['delta']), stringValue(raw['content']))
         return [event]
+      case EVENT_REASONING_SIGNATURE_DELTA:
+      case 'response.reasoning_signature.done': {
+        // 此前落入 default 且按 "reasoning" 前缀被误当推理文本拼接。
+        const signature = firstNonEmptyString(stringValue(raw['delta']), stringValue(raw['signature']), stringValue(raw['text']))
+        if (signature === '') return []
+        event.type = EVENT_REASONING_SIGNATURE_DELTA
+        event.reasoning_signature_delta = signature
+        event.reasoning_signature_provider = firstNonEmptyString(stringValue(raw['provider']), SIGNATURE_PROVIDER_OPENAI)
+        return [event]
+      }
       case EVENT_FUNCTION_CALL_ARGUMENTS_DELTA:
         event.tool_call_id = stringValue(raw['call_id']) || undefined
         event.tool_name = stringValue(raw['name']) || undefined
@@ -179,8 +197,9 @@ export class ResponsesStreamDecoder {
         return [event]
       case EVENT_RESPONSE_COMPLETED: {
         this.terminal = true
+        this.sawFinishReason = true
         if (responseValue) {
-          const response = responsesMapToCanonical(responseValue)
+          const response = responsesMapToMaheshvara(responseValue)
           if (!response) return []
           event.response = response
           event.finish_reason = response.stop_reason

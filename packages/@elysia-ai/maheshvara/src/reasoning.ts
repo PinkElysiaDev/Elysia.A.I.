@@ -1,21 +1,25 @@
 /**
  * 跨厂商 thought signature 的中立处理：
- * - canonicalSignatureForProvider：签名只在同厂商间透传（Anthropic→Anthropic 等），
+ * - maheshvaraSignatureForProvider：签名只在同厂商间透传（Anthropic→Anthropic 等），
  *   跨厂商一律丢弃，避免上游校验失败。
  * - Maheshvara reasoning envelope：Elysia-Api 自有的跨协议加密推理载荷封装
  *   （base64url 的 JSON 信封），用于把 Claude 的 encrypted_content / Gemini 的
  *   加密思考在协议间无损搬运。
+ * 信封 v2 随载 provider/model（密文签发方与签发时模型），回放按 provider
+ * 门控：密文只发还给同厂商上游，不匹配则丢弃密文只保留明文/摘要；
+ * v1（无 provider 信息）仅保持只读兼容，出站一律写 v2。
  * 对齐 maheshvara_reasoning.go。
  */
 
-import type { CanonicalReasoningSummary } from './canonical.js'
+import type { MaheshvaraReasoningSummary } from './maheshvara.js'
 
-export const MAHESHVARA_PROTOCOL_VERSION = '1'
+export const MAHESHVARA_PROTOCOL_VERSION = '2'
 export const MAHESHVARA_REASONING_ENVELOPE_V1 = 'maheshvara-reasoning-v1:'
+export const MAHESHVARA_REASONING_ENVELOPE_V2 = 'maheshvara-reasoning-v2:'
 export const MAHESHVARA_REASONING_MAX_BYTES = 4 << 20
 
 /** 签名仅在同厂商目标下透传，否则返回空串。 */
-export function canonicalSignatureForProvider(
+export function maheshvaraSignatureForProvider(
   signature: string | undefined,
   sourceProvider: string | undefined,
   targetProvider: string,
@@ -26,11 +30,14 @@ export function canonicalSignatureForProvider(
   return trimmed
 }
 
-interface MaheshvaraReasoningEnvelope {
+export interface MaheshvaraReasoningEnvelope {
   version: string
   text?: string
   encrypted_content: string
-  summary?: CanonicalReasoningSummary[]
+  summary?: MaheshvaraReasoningSummary[]
+  /** 密文签发方与签发时模型（v2 新增），回放时按 provider 门控。 */
+  provider?: string
+  model?: string
 }
 
 // base64url 编解码走 Web 标准 btoa/atob（Node 16+ 与浏览器均有全局实现），
@@ -54,7 +61,9 @@ function fromBase64URL(encoded: string): string {
 export function encodeMaheshvaraReasoningEnvelope(
   text: string,
   encryptedContent: string,
-  summary: CanonicalReasoningSummary[] = [],
+  summary: MaheshvaraReasoningSummary[] = [],
+  provider = '',
+  model = '',
 ): string {
   if (encryptedContent.trim() === '') return ''
   const payload = JSON.stringify({
@@ -62,20 +71,30 @@ export function encodeMaheshvaraReasoningEnvelope(
     text: text || undefined,
     encrypted_content: encryptedContent,
     summary: summary.length > 0 ? summary : undefined,
+    provider: provider || undefined,
+    model: model || undefined,
   })
   if (payload.length > MAHESHVARA_REASONING_MAX_BYTES) return ''
-  return MAHESHVARA_REASONING_ENVELOPE_V1 + toBase64URL(payload)
+  return MAHESHVARA_REASONING_ENVELOPE_V2 + toBase64URL(payload)
 }
 
 export function decodeMaheshvaraReasoningEnvelope(value: string): MaheshvaraReasoningEnvelope | undefined {
-  if (!value.startsWith(MAHESHVARA_REASONING_ENVELOPE_V1)) return undefined
-  const payload = value.slice(MAHESHVARA_REASONING_ENVELOPE_V1.length)
+  let version = ''
+  let payload = ''
+  if (value.startsWith(MAHESHVARA_REASONING_ENVELOPE_V2)) {
+    version = '2'
+    payload = value.slice(MAHESHVARA_REASONING_ENVELOPE_V2.length)
+  } else if (value.startsWith(MAHESHVARA_REASONING_ENVELOPE_V1)) {
+    version = '1'
+    payload = value.slice(MAHESHVARA_REASONING_ENVELOPE_V1.length)
+  }
   if (payload === '') return undefined
   try {
     const decoded = fromBase64URL(payload)
     if (decoded.length === 0 || decoded.length > MAHESHVARA_REASONING_MAX_BYTES) return undefined
     const parsed = JSON.parse(decoded) as MaheshvaraReasoningEnvelope
-    if (typeof parsed.encrypted_content !== 'string') return undefined
+    if (parsed.version !== version) return undefined
+    if (typeof parsed.encrypted_content !== 'string' || parsed.encrypted_content.trim() === '') return undefined
     return parsed
   } catch {
     return undefined

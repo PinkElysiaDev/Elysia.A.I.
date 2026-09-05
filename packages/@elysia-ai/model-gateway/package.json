@@ -29,12 +29,12 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@elysia-ai/canonical": "^0.1.0",
     "@elysia-ai/core": "^0.2.0",
-    "@elysia-ai/protocol-anthropic": "^0.1.0",
-    "@elysia-ai/protocol-gemini": "^0.1.0",
-    "@elysia-ai/protocol-openai": "^0.1.0",
-    "@elysia-ai/protocol-responses": "^0.1.0",
+    "@elysia-ai/maheshvara": "^0.2.0",
+    "@elysia-ai/protocol-anthropic": "^0.2.0",
+    "@elysia-ai/protocol-gemini": "^0.2.0",
+    "@elysia-ai/protocol-openai": "^0.2.0",
+    "@elysia-ai/protocol-responses": "^0.2.0",
     "@elysia-ai/shared": "^0.2.0"
   },
   "peerDependencies": {

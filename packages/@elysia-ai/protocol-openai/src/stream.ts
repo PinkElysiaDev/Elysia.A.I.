@@ -1,12 +1,12 @@
 /**
- * OpenAI Chat Completions SSE 流 → canonical 流事件。
+ * OpenAI Chat Completions SSE 流 → maheshvara 流事件。
  * 逐行为对齐 maheshvara_stream_decoder.go 的 decodeOpenAIChat /
  * decodeOpenAIToolCalls / openAIContentEvents / openAIReasoningSignatureProvider，
- * 以及 maheshvara_stream.go 的 canonicalUsageFromRawMap（此处 usageFromRawMap）。
+ * 以及 maheshvara_stream.go 的 maheshvaraUsageFromRawMap（此处 usageFromRawMap）。
  * 有状态：工具调用参数与内容块会跨多个上游事件分片到达。
  */
 
-import type { CanonicalContentPart, CanonicalStreamEvent, CanonicalUsage, SSEEvent } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraStreamEvent, MaheshvaraUsage, SSEEvent } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_REASONING,
@@ -25,7 +25,7 @@ import {
   EVENT_TEXT_DELTA,
   EVENT_USAGE_DELTA,
   SIGNATURE_PROVIDER_GEMINI,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
@@ -34,7 +34,7 @@ import {
   intValue,
   stringValue,
   usageFromRawMap,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
 interface ToolCallState {
   id: string
@@ -65,7 +65,7 @@ function openAIReasoningSignatureProvider(detail: Record<string, unknown>): stri
   return ''
 }
 
-function eventHasOutput(event: CanonicalStreamEvent): boolean {
+function eventHasOutput(event: MaheshvaraStreamEvent): boolean {
   return (event.delta ?? '') !== '' || (event.reasoning_delta ?? '') !== '' || (event.refusal_delta ?? '') !== ''
     || (event.tool_name ?? '') !== '' || (event.tool_arguments_delta ?? '') !== '' || (event.tool_arguments_done ?? '') !== ''
     || event.content_part !== undefined || event.output_item !== undefined
@@ -78,10 +78,14 @@ export class ChatCompletionsStreamDecoder {
   private terminal = false
   private sawWireEvent = false
   private sawOutput = false
+  private sawFinishReason = false
   private readonly tools = new Map<number, ToolCallState>()
   private readonly toolOrder: number[] = []
   private readonly finishedChoices = new Set<number>()
   private readonly seenChoices = new Set<number>()
+  private readonly choiceReasoned = new Set<number>()
+  /** 按 (choice, contentIndex) 分桶累计快照文本：终态 message 携带完整快照时只补缺失后缀。 */
+  private readonly partText = new Map<string, string>()
 
   getTerminal(): boolean {
     return this.terminal
@@ -95,17 +99,29 @@ export class ChatCompletionsStreamDecoder {
     return this.sawOutput
   }
 
-  private baseEvent(type: string, raw: Record<string, unknown>): CanonicalStreamEvent {
+  /** 上游是否发过真实终态原因（区别于合成 [DONE] 终态）。 */
+  getSawFinishReason(): boolean {
+    return this.sawFinishReason
+  }
+
+  private baseEvent(type: string, raw: Record<string, unknown>): MaheshvaraStreamEvent {
     return { type, response_id: this.responseID, model: this.model, raw }
   }
 
-  decode(event: SSEEvent): CanonicalStreamEvent[] {
+  decode(event: SSEEvent): MaheshvaraStreamEvent[] {
     const data = event.data.trim()
     if (data === '') return []
     this.sawWireEvent = true
     if (data === '[DONE]') {
       if (this.terminal) return []
       this.terminal = true
+      // 已见过 choice 却从未收到任何 finish_reason：[DONE] 不是终态替身，
+      // 这样的流是残缺的（对齐 PC7/DC7b：不允许把没写完的答卷当完整交付）。
+      if (this.seenChoices.size > 0 && !this.allChoicesFinished()) {
+        const failed = this.baseEvent(EVENT_RESPONSE_FAILED, {})
+        failed.error = { message: 'upstream stream ended without a finish_reason', type: 'upstream_stream_error' }
+        return [failed]
+      }
       return [{ type: EVENT_RESPONSE_COMPLETED, response_id: this.responseID, model: this.model }]
     }
     let raw: Record<string, unknown>
@@ -128,11 +144,11 @@ export class ChatCompletionsStreamDecoder {
     return events
   }
 
-  private decodeChat(raw: Record<string, unknown>): CanonicalStreamEvent[] {
+  private decodeChat(raw: Record<string, unknown>): MaheshvaraStreamEvent[] {
     this.responseID = firstNonEmptyString(stringValue(raw['id']), this.responseID)
     this.model = firstNonEmptyString(stringValue(raw['model']), this.model)
     const createdAt = intValue(raw['created'])
-    const events: CanonicalStreamEvent[] = []
+    const events: MaheshvaraStreamEvent[] = []
     const usage = usageFromRawMap(asRecord(raw['usage']))
     if (usage) {
       const usageEvent = this.baseEvent(EVENT_USAGE_DELTA, raw)
@@ -141,14 +157,20 @@ export class ChatCompletionsStreamDecoder {
       events.push(usageEvent)
     }
 
-    const terminalEvents: CanonicalStreamEvent[] = []
+    const terminalEvents: MaheshvaraStreamEvent[] = []
     for (const choiceValue of asArray(raw['choices']) ?? []) {
       const choice = asRecord(choiceValue)
       if (!choice) continue
       const choiceIndex = intValue(choice['index'])
       this.seenChoices.add(choiceIndex)
       let delta = asRecord(choice['delta'])
-      if (!delta) delta = asRecord(choice['message'])
+      let snapshot = false
+      if (!delta) {
+        // 终态 chunk 用完整 message 回传时是快照而非增量：已流式输出过的
+        // 内容只能补缺失后缀，不能整段重发（PC7f）。
+        delta = asRecord(choice['message'])
+        snapshot = delta !== undefined
+      }
       delta ??= {}
       const role = stringValue(delta['role'])
       if (role !== '') {
@@ -158,14 +180,15 @@ export class ChatCompletionsStreamDecoder {
         roleEvent.created_at = createdAt
         events.push(roleEvent)
       }
-      events.push(...this.contentEvents(delta['content'], choiceIndex, raw))
+      events.push(...this.contentEvents(delta['content'], choiceIndex, raw, snapshot))
 
       const reasoning = firstNonEmptyString(
         stringValue(delta['reasoning_content']),
         stringValue(delta['reasoning']),
         stringValue(delta['thinking']),
       )
-      if (reasoning !== '') {
+      if (reasoning !== '' && !(snapshot && this.choiceReasoned.has(choiceIndex))) {
+        this.choiceReasoned.add(choiceIndex)
         const reasoningEvent = this.baseEvent(EVENT_REASONING_DELTA, raw)
         reasoningEvent.choice_index = choiceIndex
         reasoningEvent.reasoning_delta = reasoning
@@ -210,7 +233,7 @@ export class ChatCompletionsStreamDecoder {
       }
       const audio = asRecord(delta['audio'])
       if (audio) {
-        const part: CanonicalContentPart = {
+        const part: MaheshvaraContentPart = {
           type: CONTENT_AUDIO,
           audio_base64: firstNonEmptyString(stringValue(audio['data']), stringValue(audio['audio_data'])),
           audio_url: firstNonEmptyString(stringValue(audio['url']), stringValue(audio['audio_url'])),
@@ -225,12 +248,25 @@ export class ChatCompletionsStreamDecoder {
       }
       const toolCalls = asArray(delta['tool_calls'])
       if (toolCalls) {
-        events.push(...this.decodeToolCalls(toolCalls, choiceIndex, raw))
+        events.push(...this.decodeToolCalls(toolCalls, choiceIndex, raw, snapshot))
       }
 
       const finishReason = stringValue(choice['finish_reason'])
       if (finishReason !== '') {
+        this.sawFinishReason = true
         this.finishedChoices.add(choiceIndex)
+        // finish_reason:"error" 是终态失败，不得伪装成正常 stop（DC5b）。
+        if (finishReason.toLowerCase() === 'error') {
+          const failed = this.baseEvent(EVENT_RESPONSE_FAILED, raw)
+          const rawError = asRecord(raw['error'])
+          const message = firstNonEmptyString(
+            rawError ? stringValue(rawError['message']) : '',
+            stringValue(delta['content']),
+          ) || 'upstream reported finish_reason=error'
+          failed.error = { message, type: 'upstream_stream_error' }
+          terminalEvents.push(failed)
+          continue
+        }
         for (const toolIndex of this.toolOrder) {
           const state = this.tools.get(toolIndex)
           if (!state || state.arguments.length === 0) continue
@@ -262,8 +298,13 @@ export class ChatCompletionsStreamDecoder {
     return true
   }
 
-  private decodeToolCalls(toolCalls: unknown[], choiceIndex: number, raw: Record<string, unknown>): CanonicalStreamEvent[] {
-    const events: CanonicalStreamEvent[] = []
+  private decodeToolCalls(
+    toolCalls: unknown[],
+    choiceIndex: number,
+    raw: Record<string, unknown>,
+    snapshot: boolean,
+  ): MaheshvaraStreamEvent[] {
+    const events: MaheshvaraStreamEvent[] = []
     for (const toolValue of toolCalls) {
       const tool = asRecord(toolValue)
       if (!tool) continue
@@ -297,6 +338,20 @@ export class ChatCompletionsStreamDecoder {
       }
       const argumentsText = stringValue(fn['arguments'])
       if (argumentsText !== '') {
+        if (snapshot) {
+          // 快照是完整参数值：与已累计内容一致时不重发，否则作为完整值
+          // 走 done 事件（渲染层对 done 做前缀差分，只补后缀）。
+          if (state.arguments === argumentsText) continue
+          this.tools.set(toolIndex, { id: state.id, name: state.name, arguments: argumentsText, added: true })
+          const doneEvent = this.baseEvent(EVENT_FUNCTION_CALL_ARGUMENTS_DONE, raw)
+          doneEvent.choice_index = choiceIndex
+          doneEvent.tool_call_index = toolIndex
+          doneEvent.tool_call_id = state.id
+          doneEvent.tool_name = state.name
+          doneEvent.tool_arguments_done = argumentsText
+          events.push(doneEvent)
+          continue
+        }
         state.arguments += argumentsText
         const deltaEvent = this.baseEvent(EVENT_FUNCTION_CALL_ARGUMENTS_DELTA, raw)
         deltaEvent.choice_index = choiceIndex
@@ -310,16 +365,23 @@ export class ChatCompletionsStreamDecoder {
     return events
   }
 
-  private contentEvents(value: unknown, choiceIndex: number, raw: Record<string, unknown>): CanonicalStreamEvent[] {
+  private contentEvents(
+    value: unknown,
+    choiceIndex: number,
+    raw: Record<string, unknown>,
+    snapshot: boolean,
+  ): MaheshvaraStreamEvent[] {
     if (typeof value === 'string') {
       if (value === '') return []
+      if (snapshot) return this.snapshotTextSuffix(value, choiceIndex, 0, raw)
+      this.accumulatePartText(choiceIndex, 0, value)
       const textEvent = this.baseEvent(EVENT_TEXT_DELTA, raw)
       textEvent.choice_index = choiceIndex
       textEvent.delta = value
       return [textEvent]
     }
     const parts = interfaceToContentParts(value)
-    const events: CanonicalStreamEvent[] = []
+    const events: MaheshvaraStreamEvent[] = []
     parts.forEach((part, index) => {
       const event = this.baseEvent(EVENT_CONTENT_PART_ADDED, raw)
       event.choice_index = choiceIndex
@@ -340,10 +402,59 @@ export class ChatCompletionsStreamDecoder {
         default:
           event.content_part = part
       }
+      if (event.type === EVENT_TEXT_DELTA && snapshot) {
+        events.push(...this.snapshotTextSuffix(event.delta ?? '', choiceIndex, index, raw))
+        return
+      }
       if (eventHasOutput(event)) {
+        if (event.type === EVENT_TEXT_DELTA) {
+          this.accumulatePartText(choiceIndex, index, event.delta ?? '')
+        }
+        if (event.type === EVENT_REASONING_DELTA) {
+          this.choiceReasoned.add(choiceIndex)
+        }
         events.push(event)
       }
     })
     return events
+  }
+
+  private accumulatePartText(choiceIndex: number, contentIndex: number, text: string): void {
+    const key = `${choiceIndex}:${contentIndex}`
+    this.partText.set(key, (this.partText.get(key) ?? '') + text)
+  }
+
+  /**
+   * 应用终态快照的后缀语义（PC7f）：完整文本与已流式输出的前缀一致时只补
+   * 缺失后缀；完全相同或分歧（非前缀）时不再重发，避免下游收到重复/冲突
+   * 内容。
+   */
+  private snapshotTextSuffix(
+    text: string,
+    choiceIndex: number,
+    contentIndex: number,
+    raw: Record<string, unknown>,
+  ): MaheshvaraStreamEvent[] {
+    const key = `${choiceIndex}:${contentIndex}`
+    const streamed = this.partText.get(key) ?? ''
+    if (text === streamed || streamed === '') {
+      if (streamed === '') {
+        this.partText.set(key, text)
+        const event = this.baseEvent(EVENT_TEXT_DELTA, raw)
+        event.choice_index = choiceIndex
+        event.delta = text
+        return [event]
+      }
+      return []
+    }
+    if (text.startsWith(streamed)) {
+      const suffix = text.slice(streamed.length)
+      this.partText.set(key, text)
+      const event = this.baseEvent(EVENT_TEXT_DELTA, raw)
+      event.choice_index = choiceIndex
+      event.delta = suffix
+      return [event]
+    }
+    return []
   }
 }

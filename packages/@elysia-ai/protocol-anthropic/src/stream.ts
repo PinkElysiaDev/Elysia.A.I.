@@ -1,13 +1,14 @@
 /**
- * Anthropic Messages SSE 流 → canonical 流事件。
+ * Anthropic Messages SSE 流 → maheshvara 流事件。
  * 逐行为对齐 maheshvara_stream_decoder_anthropic.go。
  * 块状态（tool_use 参数累积）跨事件维护。
  */
 
-import type { CanonicalContentPart, CanonicalStreamEvent, SSEEvent } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraStreamEvent, SSEEvent } from '@elysia-ai/maheshvara'
 import {
   CONTENT_REASONING,
   CONTENT_TEXT,
+  EVENT_ANNOTATION_DELTA,
   EVENT_CONTENT_PART_ADDED,
   EVENT_FUNCTION_CALL_ADDED,
   EVENT_FUNCTION_CALL_ARGUMENTS_DELTA,
@@ -22,7 +23,7 @@ import {
   EVENT_USAGE_DELTA,
   SIGNATURE_PROVIDER_ANTHROPIC,
   SIGNATURE_PROVIDER_MAHESHVARA,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asRecord,
   decodeMaheshvaraReasoningEnvelope,
@@ -30,7 +31,7 @@ import {
   intValue,
   stringValue,
   usageFromRawMap,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
 interface AnthropicBlock {
   typeName: string
@@ -59,11 +60,11 @@ export class AnthropicStreamDecoder {
     return this.sawOutput
   }
 
-  private baseEvent(type: string, raw: Record<string, unknown>): CanonicalStreamEvent {
+  private baseEvent(type: string, raw: Record<string, unknown>): MaheshvaraStreamEvent {
     return { type, response_id: this.responseID, model: this.model, raw }
   }
 
-  decode(event: SSEEvent): CanonicalStreamEvent[] {
+  decode(event: SSEEvent): MaheshvaraStreamEvent[] {
     const data = event.data.trim()
     if (data === '') return []
     this.sawWireEvent = true
@@ -94,9 +95,9 @@ export class AnthropicStreamDecoder {
     return events
   }
 
-  private decodeAnthropic(raw: Record<string, unknown>): CanonicalStreamEvent[] {
+  private decodeAnthropic(raw: Record<string, unknown>): MaheshvaraStreamEvent[] {
     const typeName = stringValue(raw['type'])
-    const events: CanonicalStreamEvent[] = []
+    const events: MaheshvaraStreamEvent[] = []
     switch (typeName) {
       case 'message_start': {
         const message = asRecord(raw['message']) ?? {}
@@ -136,7 +137,7 @@ export class AnthropicStreamDecoder {
             break
           }
           case 'thinking': {
-            const part: CanonicalContentPart = {
+            const part: MaheshvaraContentPart = {
               type: CONTENT_REASONING, thought: true,
               signature_provider: SIGNATURE_PROVIDER_ANTHROPIC, raw: blockValue,
             }
@@ -149,7 +150,7 @@ export class AnthropicStreamDecoder {
           case 'redacted_thinking': {
             const envelope = decodeMaheshvaraReasoningEnvelope(stringValue(blockValue['data']))
             if (envelope) {
-              const part: CanonicalContentPart = {
+              const part: MaheshvaraContentPart = {
                 type: CONTENT_REASONING, thought: true,
                 reasoning_text: envelope.text, text: envelope.text,
                 signature_provider: SIGNATURE_PROVIDER_MAHESHVARA,
@@ -164,7 +165,7 @@ export class AnthropicStreamDecoder {
             break
           }
           case 'text': {
-            const part: CanonicalContentPart = { type: CONTENT_TEXT, raw: blockValue }
+            const part: MaheshvaraContentPart = { type: CONTENT_TEXT, raw: blockValue }
             const event = this.baseEvent(EVENT_CONTENT_PART_ADDED, raw)
             event.content_index = index
             event.content_part = part
@@ -172,7 +173,7 @@ export class AnthropicStreamDecoder {
             break
           }
           default: {
-            const part: CanonicalContentPart = { type: block.typeName, raw: blockValue }
+            const part: MaheshvaraContentPart = { type: block.typeName, raw: blockValue }
             const event = this.baseEvent(EVENT_CONTENT_PART_ADDED, raw)
             event.content_index = index
             event.content_part = part
@@ -236,12 +237,12 @@ export class AnthropicStreamDecoder {
           case 'citations_delta': {
             const citation = asRecord(delta['citation'])
             if (citation) {
-              const part: CanonicalContentPart = {
-                type: CONTENT_TEXT, annotations: [citation], raw: delta,
-              }
-              const event = this.baseEvent(EVENT_CONTENT_PART_ADDED, raw)
+              // 引用标注不生成独立 part（空文本 part 在部分渲染器会被当作
+              // 畸形块回放）；挂到事件 annotations 载体，由 Claude 渲染器
+              // 在对应文本块收尾前发合法的 citations_delta。
+              const event = this.baseEvent(EVENT_ANNOTATION_DELTA, raw)
               event.content_index = index
-              event.content_part = part
+              event.annotations = [citation]
               events.push(event)
             }
             break

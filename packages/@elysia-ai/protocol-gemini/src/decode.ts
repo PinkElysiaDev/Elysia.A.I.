@@ -1,10 +1,11 @@
 /**
- * Gemini generateContent wire 响应 → canonical。
- * 对齐 canonical_convert.go 的 GeminiResponseToCanonical / canonicalUsageFromGeminiUsage。
+ * Gemini generateContent wire 响应 → maheshvara。
+ * 对齐 maheshvara_convert.go 的 GeminiResponseToMaheshvara / maheshvaraUsageFromGeminiUsage。
  */
 
-import type { CanonicalOutputItem, CanonicalResponse, CanonicalUsage } from '@elysia-ai/canonical'
+import type { MaheshvaraOutputItem, MaheshvaraResponse, MaheshvaraUsage } from '@elysia-ai/maheshvara'
 import {
+  ANNOTATION_GEMINI_GROUNDING,
   CONTENT_FILE,
   CONTENT_IMAGE,
   CONTENT_REASONING,
@@ -14,27 +15,27 @@ import {
   OUTPUT_REASONING,
   SIGNATURE_PROVIDER_GEMINI,
   TOOL_FUNCTION,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
   firstNonEmptyString,
   intValue,
   stringValue,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
-function newCanonicalResponseID(prefix: string): string {
+function newMaheshvaraResponseID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e9)}`
 }
 
-function usageFromGemini(usage: Record<string, unknown> | undefined): CanonicalUsage | undefined {
+function usageFromGemini(usage: Record<string, unknown> | undefined): MaheshvaraUsage | undefined {
   if (!usage) {
     return { input_tokens: 0, output_tokens: 0, total_tokens: 0, source: 'provider_response' }
   }
   const input = intValue(usage['promptTokenCount']) + intValue(usage['toolUsePromptTokenCount'])
   const output = intValue(usage['candidatesTokenCount']) + intValue(usage['thoughtsTokenCount'])
   const total = intValue(usage['totalTokenCount']) || input + output
-  const out: CanonicalUsage = {
+  const out: MaheshvaraUsage = {
     input_tokens: input,
     output_tokens: output,
     total_tokens: total,
@@ -66,25 +67,34 @@ function usageFromGemini(usage: Record<string, unknown> | undefined): CanonicalU
   return out
 }
 
-/** Gemini 响应（JSON.parse 产物）→ canonical 响应。 */
-export function decodeGenerateContentResponse(body: unknown): CanonicalResponse {
+/** Gemini 响应（JSON.parse 产物）→ maheshvara 响应。 */
+export function decodeGenerateContentResponse(body: unknown): MaheshvaraResponse {
   const raw = asRecord(body)
   if (!raw) throw new Error('nil Gemini response')
 
-  const out: CanonicalResponse = {
-    id: stringValue(raw['responseId']) || newCanonicalResponseID('gemini'),
+  const out: MaheshvaraResponse = {
+    id: stringValue(raw['responseId']) || newMaheshvaraResponseID('gemini'),
     model: stringValue(raw['modelVersion']),
     created_at: Math.floor(Date.now() / 1000),
     status: 'completed',
     output: [],
     usage: usageFromGemini(asRecord(raw['usageMetadata'])),
   }
-  const msg: CanonicalOutputItem = { id: newCanonicalResponseID('msg'), type: OUTPUT_MESSAGE, status: 'completed', role: 'assistant', content: [] }
+  const msg: MaheshvaraOutputItem = { id: newMaheshvaraResponseID('msg'), type: OUTPUT_MESSAGE, status: 'completed', role: 'assistant', content: [] }
   const candidates = asArray(raw['candidates']) ?? []
   if (candidates.length > 0) {
     const candidate = asRecord(candidates[0])
     if (candidate) {
       out.stop_reason = stringValue(candidate['finishReason']) || undefined
+      // 搜索/据实来源标注挂在首个文本 part 的 annotations 上（包装原始
+      // JSON），Gemini 目标渲染时提取回 candidate.groundingMetadata。
+      const grounding = asRecord(candidate['groundingMetadata'])
+      let groundingAttached = false
+      const attachGrounding = (part: { annotations?: Record<string, unknown>[] }): void => {
+        if (groundingAttached || !grounding) return
+        groundingAttached = true
+        part.annotations = [{ [ANNOTATION_GEMINI_GROUNDING]: grounding }]
+      }
       const content = asRecord(candidate['content']) ?? {}
       for (const partValue of asArray(content['parts']) ?? []) {
         const part = asRecord(partValue)
@@ -93,7 +103,7 @@ export function decodeGenerateContentResponse(body: unknown): CanonicalResponse 
         if (text !== '') {
           if (part['thought'] === true) {
             out.output?.push({
-              id: newCanonicalResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
+              id: newMaheshvaraResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
               content: [{
                 type: CONTENT_REASONING, text, reasoning_text: text,
                 signature: stringValue(part['thoughtSignature']) || undefined,
@@ -101,7 +111,9 @@ export function decodeGenerateContentResponse(body: unknown): CanonicalResponse 
               }],
             })
           } else {
-            msg.content?.push({ type: CONTENT_TEXT, text })
+            const textPart: { type: string; text: string; annotations?: Record<string, unknown>[] } = { type: CONTENT_TEXT, text }
+            attachGrounding(textPart)
+            msg.content?.push(textPart)
           }
         }
         const functionCall = asRecord(part['functionCall'])
@@ -110,7 +122,7 @@ export function decodeGenerateContentResponse(body: unknown): CanonicalResponse 
           const name = stringValue(functionCall['name'])
           const argsJSON = JSON.stringify(functionCall['args'] ?? {})
           out.output?.push({
-            id: newCanonicalResponseID('call'),
+            id: newMaheshvaraResponseID('call'),
             type: OUTPUT_FUNCTION_CALL,
             status: 'completed',
             call_id: callID,
@@ -149,7 +161,7 @@ export function decodeGenerateContentResponse(body: unknown): CanonicalResponse 
 }
 
 /** 提取全部消息文本（网关 output 用；thought 部件不计入）。 */
-export function extractMessageText(response: CanonicalResponse): string {
+export function extractMessageText(response: MaheshvaraResponse): string {
   let out = ''
   for (const item of response.output ?? []) {
     if (item.type !== OUTPUT_MESSAGE) continue

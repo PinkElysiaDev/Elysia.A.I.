@@ -1,11 +1,11 @@
 /**
- * canonical → OpenAI Responses API wire 请求构造。
- * 对齐 canonical_convert.go 的 CanonicalToResponsesRequest / canonicalInputToResponses /
- * canonicalToolCallsToResponsesItems / canonicalContentToResponsesInputContent /
- * canonicalToolsToResponses / canonicalResponseFormatToResponses。
+ * maheshvara → OpenAI Responses API wire 请求构造。
+ * 对齐 maheshvara_convert.go 的 MaheshvaraToResponsesRequest / maheshvaraInputToResponses /
+ * maheshvaraToolCallsToResponsesItems / maheshvaraContentToResponsesInputContent /
+ * maheshvaraToolsToResponses / maheshvaraResponseFormatToResponses。
  */
 
-import type { CanonicalContentPart, CanonicalRequest, CanonicalResponseFormat, CanonicalTool, CanonicalToolCall } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraRequest, MaheshvaraResponseFormat, MaheshvaraTool, MaheshvaraToolCall } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_FILE,
@@ -15,9 +15,9 @@ import {
   CONTENT_VIDEO,
   INPUT_FUNCTION_CALL_OUTPUT,
   TOOL_FUNCTION,
-} from '@elysia-ai/canonical'
-import { collectInstructions, firstNonEmptyString } from '@elysia-ai/canonical'
-import { canonicalToolChoiceToOpenAI, imagePartToOpenAIURL } from '@elysia-ai/protocol-openai'
+} from '@elysia-ai/maheshvara'
+import { collectInstructions, firstNonEmptyString } from '@elysia-ai/maheshvara'
+import { maheshvaraToolChoiceToOpenAI, imagePartToOpenAIURL } from '@elysia-ai/protocol-openai'
 
 function responsesInputRole(role: string): string {
   const normalized = role.trim().toLowerCase()
@@ -41,7 +41,7 @@ function refusalTextFromRaw(raw: unknown): string {
   return typeof m['text'] === 'string' ? m['text'] : ''
 }
 
-function canonicalTextOf(parts: CanonicalContentPart[] | undefined): string {
+function maheshvaraTextOf(parts: MaheshvaraContentPart[] | undefined): string {
   let out = ''
   for (const part of parts ?? []) {
     if (part.type === CONTENT_TEXT) out += part.text ?? ''
@@ -49,7 +49,7 @@ function canonicalTextOf(parts: CanonicalContentPart[] | undefined): string {
   return out
 }
 
-export function canonicalToolCallsToResponsesItems(calls: CanonicalToolCall[] | undefined): Array<Record<string, unknown>> {
+export function maheshvaraToolCallsToResponsesItems(calls: MaheshvaraToolCall[] | undefined): Array<Record<string, unknown>> {
   const items: Array<Record<string, unknown>> = []
   for (const call of calls ?? []) {
     const callID = (call.id ?? '').trim()
@@ -62,7 +62,7 @@ export function canonicalToolCallsToResponsesItems(calls: CanonicalToolCall[] | 
   return items
 }
 
-function canonicalContentToResponsesInputContent(role: string, parts: CanonicalContentPart[] | undefined): Array<Record<string, unknown>> {
+function maheshvaraContentToResponsesInputContent(role: string, parts: MaheshvaraContentPart[] | undefined): Array<Record<string, unknown>> {
   const normalizedRole = responsesInputRole(role)
   const out: Array<Record<string, unknown>> = []
   for (const part of parts ?? []) {
@@ -137,7 +137,7 @@ function rawResponsesInputItem(rawExtra: Record<string, unknown> | undefined): R
   return undefined
 }
 
-function canonicalInputToResponses(req: CanonicalRequest): Array<Record<string, unknown>> {
+function maheshvaraInputToResponses(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   if ((req.input_items?.length ?? 0) > 0) {
     const items: Array<Record<string, unknown>> = []
     for (const item of req.input_items!) {
@@ -151,7 +151,7 @@ function canonicalInputToResponses(req: CanonicalRequest): Array<Record<string, 
         continue
       }
       const role = responsesInputRole(item.role ?? '')
-      const content = canonicalContentToResponsesInputContent(role, item.content)
+      const content = maheshvaraContentToResponsesInputContent(role, item.content)
       if (content.length === 0) continue
       items.push({ role, content })
     }
@@ -164,7 +164,7 @@ function canonicalInputToResponses(req: CanonicalRequest): Array<Record<string, 
     if (role === '' || role === 'system' || role === 'developer') continue
     if (role === 'tool' || role === 'function') {
       const callID = (msg.tool_call_id ?? '').trim()
-      const output = canonicalTextOf(msg.content)
+      const output = maheshvaraTextOf(msg.content)
       if (callID === '') {
         items.push({ role: 'user', content: [{ type: 'input_text', text: `[tool_output_missing_call_id] ${output}` }] })
         continue
@@ -172,18 +172,18 @@ function canonicalInputToResponses(req: CanonicalRequest): Array<Record<string, 
       items.push({ type: 'function_call_output', call_id: callID, output })
       continue
     }
-    const content = canonicalContentToResponsesInputContent(role, msg.content)
+    const content = maheshvaraContentToResponsesInputContent(role, msg.content)
     if (content.length > 0) {
       items.push({ role: responsesInputRole(role), content })
     }
     if (role === 'assistant') {
-      items.push(...canonicalToolCallsToResponsesItems(msg.tool_calls))
+      items.push(...maheshvaraToolCallsToResponsesItems(msg.tool_calls))
     }
   }
   return items
 }
 
-export function canonicalToolsToResponses(tools: CanonicalTool[]): Array<Record<string, unknown>> {
+export function maheshvaraToolsToResponses(tools: MaheshvaraTool[]): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
   for (const tool of tools) {
     if (tool.raw) {
@@ -202,7 +202,7 @@ export function canonicalToolsToResponses(tools: CanonicalTool[]): Array<Record<
   return out
 }
 
-function canonicalResponseFormatToResponses(f: CanonicalResponseFormat): Record<string, unknown> {
+function maheshvaraResponseFormatToResponses(f: MaheshvaraResponseFormat): Record<string, unknown> {
   if (f.raw) return f.raw as Record<string, unknown>
   const out: Record<string, unknown> = { type: f.type }
   if (f.name) out['name'] = f.name
@@ -212,7 +212,7 @@ function canonicalResponseFormatToResponses(f: CanonicalResponseFormat): Record<
   return out
 }
 
-function applyResponsesRequestExtensions(out: Record<string, unknown>, req: CanonicalRequest): void {
+function applyResponsesRequestExtensions(out: Record<string, unknown>, req: MaheshvaraRequest): void {
   if (req.seed !== undefined) out['seed'] = req.seed
   if (req.service_tier) out['service_tier'] = req.service_tier
   if (req.max_tool_calls !== undefined) out['max_tool_calls'] = req.max_tool_calls
@@ -231,11 +231,11 @@ function applyResponsesRequestExtensions(out: Record<string, unknown>, req: Cano
 }
 
 /**
- * canonical 请求 → Responses API 请求体对象。
+ * maheshvara 请求 → Responses API 请求体对象。
  * original 为可选的原始 Responses 请求（透传场景解析自 wire），提供时以其为基底
- * 保留未建模字段（对齐 Go CanonicalToResponsesRequest 的 original 参数语义）。
+ * 保留未建模字段（对齐 Go MaheshvaraToResponsesRequest 的 original 参数语义）。
  */
-export function encodeResponsesRequest(req: CanonicalRequest, original?: Record<string, unknown>): Record<string, unknown> {
+export function encodeResponsesRequest(req: MaheshvaraRequest, original?: Record<string, unknown>): Record<string, unknown> {
   if (!req.model?.trim()) {
     throw new Error('cannot render openai_responses request without model')
   }
@@ -243,24 +243,60 @@ export function encodeResponsesRequest(req: CanonicalRequest, original?: Record<
   out['model'] = req.model
   const instructions = collectInstructions(req)
   if (instructions !== '') out['instructions'] = instructions
-  out['input'] = canonicalInputToResponses(req)
+  if (req.user) out['user'] = req.user
+  out['input'] = maheshvaraInputToResponses(req)
   if ((req.max_output_tokens ?? 0) > 0) out['max_output_tokens'] = req.max_output_tokens
   if (req.temperature !== undefined) out['temperature'] = req.temperature
   if (req.top_p !== undefined) out['top_p'] = req.top_p
   if (req.stream) out['stream'] = true
-  if ((req.tools?.length ?? 0) > 0) out['tools'] = canonicalToolsToResponses(req.tools!)
+  if ((req.tools?.length ?? 0) > 0) out['tools'] = maheshvaraToolsToResponses(req.tools!)
   if (req.tool_choice !== undefined && req.tool_choice !== null) {
-    out['tool_choice'] = canonicalToolChoiceToOpenAI(req.tool_choice)
+    out['tool_choice'] = maheshvaraToolChoiceToOpenAI(req.tool_choice)
   }
   if (req.parallel_tool_calls !== undefined) out['parallel_tool_calls'] = req.parallel_tool_calls
   if (req.response_format) {
-    out['text'] = { format: canonicalResponseFormatToResponses(req.response_format) }
+    out['text'] = { format: maheshvaraResponseFormatToResponses(req.response_format) }
   }
   if (req.reasoning) {
     const reasoning: Record<string, unknown> = { ...(req.reasoning.raw ?? {}) }
-    if (req.reasoning.effort) reasoning['effort'] = req.reasoning.effort
+    if ((req.reasoning.effort ?? '').toLowerCase() === 'none') {
+      // 上游会把 effort:"none" 静默当成 low 档执行，必须整个省略字段。
+      delete reasoning['effort']
+    } else if (req.reasoning.effort) {
+      reasoning['effort'] = req.reasoning.effort
+    }
     out['reasoning'] = reasoning
+  }
+  // 携带加密思考历史的请求发给 Responses 上游时，追加 include 让上游返回
+  // 加密思考，跨轮续用才可行。
+  if (maheshvaraRequestHasEncryptedReasoning(req)) {
+    out['include'] = appendResponsesInclude(out['include'], 'reasoning.encrypted_content')
   }
   applyResponsesRequestExtensions(out, req)
   return out
+}
+
+function maheshvaraRequestHasEncryptedReasoning(req: MaheshvaraRequest): boolean {
+  for (const msg of req.messages ?? []) {
+    for (const part of msg.content ?? []) {
+      if (part.type === 'reasoning' && part.encrypted_content) return true
+    }
+  }
+  for (const item of req.input_items ?? []) {
+    if (item.reasoning?.encrypted_content) return true
+  }
+  return false
+}
+
+function appendResponsesInclude(current: unknown, value: string): string[] {
+  const include: string[] = []
+  if (Array.isArray(current)) {
+    for (const item of current) {
+      if (typeof item === 'string') include.push(item)
+    }
+  } else if (typeof current === 'string') {
+    include.push(current)
+  }
+  if (!include.includes(value)) include.push(value)
+  return include
 }

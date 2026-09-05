@@ -1,10 +1,10 @@
 /**
- * OpenAI Responses API wire 响应 → canonical。
- * 对齐 canonical_convert.go 的 ResponsesResponseToCanonical /
- * canonicalUsageFromResponsesUsage。
+ * OpenAI Responses API wire 响应 → maheshvara。
+ * 对齐 maheshvara_convert.go 的 ResponsesResponseToMaheshvara /
+ * maheshvaraUsageFromResponsesUsage。
  */
 
-import type { CanonicalOutputItem, CanonicalResponse, CanonicalUsage } from '@elysia-ai/canonical'
+import type { MaheshvaraOutputItem, MaheshvaraResponse, MaheshvaraUsage } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_FILE,
@@ -13,7 +13,7 @@ import {
   CONTENT_REFUSAL,
   CONTENT_TEXT,
   OUTPUT_REASONING,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
@@ -21,9 +21,9 @@ import {
   firstNonEmptyString,
   intValue,
   stringValue,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
-function usageFromResponses(usage: Record<string, unknown> | undefined): CanonicalUsage | undefined {
+function usageFromResponses(usage: Record<string, unknown> | undefined): MaheshvaraUsage | undefined {
   if (!usage) return undefined
   const inputDetails = asRecord(usage['input_tokens_details'])
   const outputDetails = asRecord(usage['output_tokens_details'])
@@ -39,12 +39,12 @@ function usageFromResponses(usage: Record<string, unknown> | undefined): Canonic
   }
 }
 
-/** Responses 响应（JSON.parse 产物）→ canonical 响应。 */
-export function decodeResponsesResponse(body: unknown): CanonicalResponse {
+/** Responses 响应（JSON.parse 产物）→ maheshvara 响应。 */
+export function decodeResponsesResponse(body: unknown): MaheshvaraResponse {
   const raw = asRecord(body)
   if (!raw) throw new Error('nil Responses response')
 
-  const out: CanonicalResponse = {
+  const out: MaheshvaraResponse = {
     id: stringValue(raw['id']),
     model: stringValue(raw['model']),
     created_at: intValue(raw['created_at']),
@@ -74,7 +74,7 @@ export function decodeResponsesResponse(body: unknown): CanonicalResponse {
   for (const itemValue of asArray(raw['output']) ?? []) {
     const item = asRecord(itemValue)
     if (!item) continue
-    const citem: CanonicalOutputItem = {
+    const citem: MaheshvaraOutputItem = {
       id: stringValue(item['id']) || undefined,
       type: stringValue(item['type']),
       status: stringValue(item['status']) || undefined,
@@ -84,7 +84,10 @@ export function decodeResponsesResponse(body: unknown): CanonicalResponse {
       arguments: item['arguments'],
       content: [],
       summary: [],
-      raw: { quality: item['quality'], size: item['size'] },
+      // 整块原始对象捕获（Go RawItem）：server-tool 项（web_search_call /
+      // file_search_call / image_generation_call 等）的载荷不再缩水为
+      // id/type 骨架，重建时以 raw 为底叠加类型化字段整体往返。
+      raw: item,
     }
     for (const contentValue of asArray(item['content']) ?? []) {
       const content = asRecord(contentValue)
@@ -167,7 +170,7 @@ export function decodeResponsesResponse(body: unknown): CanonicalResponse {
 }
 
 /** 提取全部消息文本（网关 output 用）。 */
-export function extractMessageText(response: CanonicalResponse): string {
+export function extractMessageText(response: MaheshvaraResponse): string {
   let out = ''
   for (const item of response.output ?? []) {
     if (item.type !== 'message') continue

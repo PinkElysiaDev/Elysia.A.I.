@@ -1,11 +1,11 @@
 /**
- * OpenAI Chat Completions wire 响应 → canonical。
- * 对齐 canonical_convert.go 的 OpenAIChatResponseToCanonical /
- * canonicalUsageFromOpenAIUsage。输入为 JSON.parse 的任意对象，
+ * OpenAI Chat Completions wire 响应 → maheshvara。
+ * 对齐 maheshvara_convert.go 的 OpenAIChatResponseToMaheshvara /
+ * maheshvaraUsageFromOpenAIUsage。输入为 JSON.parse 的任意对象，
  * 全程防御式访问，不依赖 wire 结构体定义。
  */
 
-import type { CanonicalContentPart, CanonicalOutputItem, CanonicalResponse, CanonicalUsage } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraOutputItem, MaheshvaraResponse, MaheshvaraUsage } from '@elysia-ai/maheshvara'
 import {
   CONTENT_AUDIO,
   CONTENT_IMAGE,
@@ -17,7 +17,7 @@ import {
   OUTPUT_REASONING,
   SIGNATURE_PROVIDER_GEMINI,
   TOOL_FUNCTION,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
@@ -25,14 +25,14 @@ import {
   interfaceToContentParts,
   intValue,
   stringValue,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
-function newCanonicalResponseID(prefix: string): string {
+function newMaheshvaraResponseID(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e9)}`
 }
 
-/** OpenAI audio 值 → canonical audio 部件（Go openAIAudioValueToPart）。 */
-function openAIAudioValueToPart(value: unknown): CanonicalContentPart | undefined {
+/** OpenAI audio 值 → maheshvara audio 部件（Go openAIAudioValueToPart）。 */
+function openAIAudioValueToPart(value: unknown): MaheshvaraContentPart | undefined {
   const object = asRecord(value)
   if (!object) return undefined
   const data = firstNonEmptyString(stringValue(object['data']), stringValue(object['audio_data']), stringValue(object['base64']))
@@ -50,11 +50,17 @@ function openAIAudioValueToPart(value: unknown): CanonicalContentPart | undefine
   }
 }
 
-function usageFromOpenAI(usage: Record<string, unknown> | undefined): CanonicalUsage | undefined {
+function usageFromOpenAI(usage: Record<string, unknown> | undefined): MaheshvaraUsage | undefined {
   if (!usage) {
     return { input_tokens: 0, output_tokens: 0, total_tokens: 0, source: 'provider_response' }
   }
-  const promptDetails = asRecord(usage['prompt_tokens_details']) ?? asRecord(usage['input_tokens_details']) ?? {}
+  // prompt 明细默认读 prompt_tokens_details；input_tokens_details 携带有效
+  // 计数（cached/text）时优先生效——新式上游逐步迁移到该键。
+  let promptDetails = asRecord(usage['prompt_tokens_details']) ?? {}
+  const inputDetails = asRecord(usage['input_tokens_details'])
+  if (inputDetails && (intValue(inputDetails['cached_tokens']) > 0 || intValue(inputDetails['text_tokens']) > 0)) {
+    promptDetails = inputDetails
+  }
   const completionDetails = asRecord(usage['completion_tokens_details']) ?? {}
   const inputTokens = intValue(usage['prompt_tokens'])
   const outputTokens = intValue(usage['completion_tokens'])
@@ -69,23 +75,61 @@ function usageFromOpenAI(usage: Record<string, unknown> | undefined): CanonicalU
     output_tokens: outputTokens,
     total_tokens: total,
     cached_input_tokens: cached || undefined,
+    cache_creation_input_tokens: intValue(promptDetails['cached_creation_tokens']) || undefined,
     reasoning_tokens: intValue(completionDetails['reasoning_tokens']) || undefined,
     accepted_prediction_tokens: intValue(completionDetails['accepted_prediction_tokens']) || undefined,
     rejected_prediction_tokens: intValue(completionDetails['rejected_prediction_tokens']) || undefined,
+    // 模态拆分（XF5 批次）：文本/音频/图像 token 的输入输出分桶。
+    text_input_tokens: intValue(promptDetails['text_tokens']) || undefined,
+    audio_input_tokens: intValue(promptDetails['audio_tokens']) || undefined,
+    image_input_tokens: intValue(promptDetails['image_tokens']) || undefined,
+    text_output_tokens: intValue(completionDetails['text_tokens']) || undefined,
+    audio_output_tokens: intValue(completionDetails['audio_tokens']) || undefined,
+    image_output_tokens: intValue(completionDetails['image_tokens']) || undefined,
+    // 完整原始对象透传（Go RawFields）：上游新增计数键在跨协议中转不丢失。
+    raw: usage,
     source: 'provider_response',
   }
 }
 
-/** Chat Completions 响应（JSON.parse 产物）→ canonical 响应。 */
-export function decodeChatCompletionsResponse(body: unknown): CanonicalResponse {
+/**
+ * OpenRouter 风格 reasoning_details 逐条解析为推理 parts（每条一 part，
+ * 不合并不去重）：text/summary 走明文，encrypted_content/data 走密文
+ * （签发方记为 openai）。
+ */
+export function openAIReasoningDetailsToParts(raw: unknown): MaheshvaraContentPart[] {
+  const parts: MaheshvaraContentPart[] = []
+  for (const item of asArray(raw) ?? []) {
+    const detail = asRecord(item)
+    if (!detail) continue
+    const text = firstNonEmptyString(stringValue(detail['text']), stringValue(detail['summary']))
+    const encrypted = firstNonEmptyString(stringValue(detail['encrypted_content']), stringValue(detail['data']))
+    if (text === '' && encrypted === '') continue
+    const part: MaheshvaraContentPart = { type: CONTENT_REASONING, raw: detail, thought: true }
+    if (text !== '') {
+      part.text = text
+      part.reasoning_text = text
+    }
+    if (encrypted !== '') {
+      part.encrypted_content = encrypted
+      part.encrypted_provider = 'openai'
+    }
+    parts.push(part)
+  }
+  return parts
+}
+
+/** Chat Completions 响应（JSON.parse 产物）→ maheshvara 响应。 */
+export function decodeChatCompletionsResponse(body: unknown): MaheshvaraResponse {
   const raw = asRecord(body)
   if (!raw) throw new Error('nil OpenAI response')
 
-  const out: CanonicalResponse = {
+  const out: MaheshvaraResponse = {
     id: stringValue(raw['id']),
     model: stringValue(raw['model']),
     created_at: intValue(raw['created']),
     status: 'completed',
+    system_fingerprint: stringValue(raw['system_fingerprint']) || undefined,
     output: [],
     usage: usageFromOpenAI(asRecord(raw['usage'])),
   }
@@ -95,8 +139,8 @@ export function decodeChatCompletionsResponse(body: unknown): CanonicalResponse 
     const choice = asRecord(choices[0])
     if (choice) {
       const message = asRecord(choice['message']) ?? {}
-      const item: CanonicalOutputItem = {
-        id: newCanonicalResponseID('msg'),
+      const item: MaheshvaraOutputItem = {
+        id: newMaheshvaraResponseID('msg'),
         type: OUTPUT_MESSAGE,
         status: 'completed',
         role: stringValue(message['role']) || 'assistant',
@@ -105,7 +149,7 @@ export function decodeChatCompletionsResponse(body: unknown): CanonicalResponse 
       for (const part of item.content ?? []) {
         if (part.type === CONTENT_REASONING) {
           out.output?.push({
-            id: newCanonicalResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
+            id: newMaheshvaraResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
             content: [part],
           })
         }
@@ -113,8 +157,15 @@ export function decodeChatCompletionsResponse(body: unknown): CanonicalResponse 
       const reasoningContent = stringValue(message['reasoning_content'])
       if (reasoningContent !== '') {
         out.output?.push({
-          id: newCanonicalResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
+          id: newMaheshvaraResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
           content: [{ type: CONTENT_REASONING, text: reasoningContent, reasoning_text: reasoningContent }],
+        })
+      }
+      // OpenRouter 风格推理明细：每条一 item（不合并不去重），密文带签发方。
+      for (const part of openAIReasoningDetailsToParts(message['reasoning_details'])) {
+        out.output?.push({
+          id: newMaheshvaraResponseID('rs'), type: OUTPUT_REASONING, status: 'completed',
+          content: [part],
         })
       }
       const refusal = stringValue(message['refusal'])
@@ -162,7 +213,7 @@ export function decodeChatCompletionsResponse(body: unknown): CanonicalResponse 
 }
 
 /** 提取全部消息文本（网关 output 用）。 */
-export function extractMessageText(response: CanonicalResponse): string {
+export function extractMessageText(response: MaheshvaraResponse): string {
   let out = ''
   for (const item of response.output ?? []) {
     if (item.type !== OUTPUT_MESSAGE) continue
@@ -173,4 +224,4 @@ export function extractMessageText(response: CanonicalResponse): string {
   return out
 }
 
-export { usageFromOpenAI, openAIAudioValueToPart, newCanonicalResponseID, CONTENT_IMAGE }
+export { usageFromOpenAI, openAIAudioValueToPart, newMaheshvaraResponseID, CONTENT_IMAGE }

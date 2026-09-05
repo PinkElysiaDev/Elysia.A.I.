@@ -7,7 +7,7 @@ import {
   normalizeClaudeFinishReason,
   readResponseBody,
 } from './utils.js'
-import { toCanonicalRequest } from './canonical-bridge.js'
+import { toMaheshvaraRequest } from './maheshvara-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -34,7 +34,7 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const canonical = toCanonicalRequest(request, {
+      const maheshvara = toMaheshvaraRequest(request, {
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
@@ -42,7 +42,7 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/messages`
-      const body = encodeMessagesRequest(canonical)
+      const body = encodeMessagesRequest(maheshvara)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -66,9 +66,9 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
         throw createProviderApiError('Claude', config.id, json)
       }
 
-      const canonicalResponse = decodeMessagesResponse(json)
-      const output = extractMessageText(canonicalResponse)
-      const finishReason = normalizeClaudeFinishReason(canonicalResponse.stop_reason)
+      const maheshvaraResponse = decodeMessagesResponse(json)
+      const output = extractMessageText(maheshvaraResponse)
+      const finishReason = normalizeClaudeFinishReason(maheshvaraResponse.stop_reason)
       const latencyMs = Date.now() - startedAt
 
       return {
@@ -80,19 +80,19 @@ export function createAnthropicProvider(config: ProviderConfig): Provider {
         provider: {
           id: config.id,
           type: 'anthropic',
-          model: canonicalResponse.model || model,
+          model: maheshvaraResponse.model || model,
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: canonicalResponse.usage?.input_tokens,
-          outputTokens: canonicalResponse.usage?.output_tokens,
-          totalTokens: canonicalResponse.usage?.total_tokens,
+          inputTokens: maheshvaraResponse.usage?.input_tokens,
+          outputTokens: maheshvaraResponse.usage?.output_tokens,
+          totalTokens: maheshvaraResponse.usage?.total_tokens,
         },
         finishReason,
         latencyMs,
         metadata: {
-          responseId: canonicalResponse.id,
-          model: canonicalResponse.model,
+          responseId: maheshvaraResponse.id,
+          model: maheshvaraResponse.model,
           providerLatencyMs: latencyMs,
           latencyMs,
         },

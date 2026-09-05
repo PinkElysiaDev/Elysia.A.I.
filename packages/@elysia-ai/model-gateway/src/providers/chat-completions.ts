@@ -1,7 +1,7 @@
 import { decodeChatCompletionsResponse, encodeChatCompletionsRequest, extractMessageText } from '@elysia-ai/protocol-openai'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
 import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody } from './utils.js'
-import { toCanonicalRequest } from './canonical-bridge.js'
+import { toMaheshvaraRequest } from './maheshvara-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -28,7 +28,7 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
     },
     async execute(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? config.model
-      const canonical = toCanonicalRequest(request, {
+      const maheshvara = toMaheshvaraRequest(request, {
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
@@ -36,7 +36,7 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
       const timeout = request.timeoutMs ?? timeoutMs
 
       const url = `${fullBaseUrl}/chat/completions`
-      const body = encodeChatCompletionsRequest(canonical)
+      const body = encodeChatCompletionsRequest(maheshvara)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
@@ -59,9 +59,9 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
         throw createProviderApiError('Chat Completions', config.id, json)
       }
 
-      const canonicalResponse = decodeChatCompletionsResponse(json)
-      const output = extractMessageText(canonicalResponse)
-      const finishReason = canonicalResponse.stop_reason ?? 'unknown'
+      const maheshvaraResponse = decodeChatCompletionsResponse(json)
+      const output = extractMessageText(maheshvaraResponse)
+      const finishReason = maheshvaraResponse.stop_reason ?? 'unknown'
       const latencyMs = Date.now() - startedAt
 
       return {
@@ -77,14 +77,14 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
           endpoint: fullBaseUrl,
         },
         usage: {
-          inputTokens: canonicalResponse.usage?.input_tokens,
-          outputTokens: canonicalResponse.usage?.output_tokens,
-          totalTokens: canonicalResponse.usage?.total_tokens,
+          inputTokens: maheshvaraResponse.usage?.input_tokens,
+          outputTokens: maheshvaraResponse.usage?.output_tokens,
+          totalTokens: maheshvaraResponse.usage?.total_tokens,
         },
         finishReason,
         latencyMs,
         metadata: {
-          responseId: canonicalResponse.id,
+          responseId: maheshvaraResponse.id,
           latencyMs,
         },
       }

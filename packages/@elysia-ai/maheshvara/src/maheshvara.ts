@@ -1,35 +1,35 @@
 /**
- * Elysia canonical 统一模型（TypeScript 权威版本）。
+ * Elysia Maheshvara 统一模型（TypeScript 权威版本）。
  *
- * 本文件与 Elysia-Api（Go）`backend/relay/canonical.go` 逐字段对齐：
+ * 本文件与 Elysia-Api（Go）`backend/relay/maheshvara_types.go` 逐字段对齐：
  * - 属性名与 Go 结构体的 JSON 标签完全一致（snake_case），
  *   因此 `JSON.parse` 出的线上对象可以直接断言为本模块的类型，
  *   Go 与 TS 两套测试可共享同一批 golden fixture。
  * - Go 的 `json.RawMessage` / `any` 对应 `unknown`；
  *   `map[string]any` 对应 `Record<string, unknown>`。
  * - `RawExtra` / `Raw` 系列字段承担保真透传职责：解析方把协议里
- *   canonical 未显式建模的未知字段原样存进去，构造方在需要时回填，
- *   保证 X → canonical → Y 的转换不丢厂商私有扩展。
+ *   Maheshvara 未显式建模的未知字段原样存进去，构造方在需要时回填，
+ *   保证 X → Maheshvara → Y 的转换不丢厂商私有扩展。
  */
 
 /** 流式请求选项。 */
-export interface CanonicalStreamOptions {
+export interface MaheshvaraStreamOptions {
   include_usage?: boolean
   include_obfuscation?: boolean
   raw?: Record<string, unknown>
 }
 
 /** 单条消息。content 为多模态部件数组；role 为 user/assistant/tool 等。 */
-export interface CanonicalMessage {
+export interface MaheshvaraMessage {
   role: string
-  content?: CanonicalContentPart[]
-  tool_calls?: CanonicalToolCall[]
+  content?: MaheshvaraContentPart[]
+  tool_calls?: MaheshvaraToolCall[]
   tool_call_id?: string
   name?: string
-  audio?: CanonicalAudioConfig
+  audio?: MaheshvaraAudioConfig
   cache_control?: unknown
   metadata?: Record<string, unknown>
-  /** 解析时捕获的未建模字段（Go: `json:"-"`，不参与 canonical 自身的序列化）。 */
+  /** 解析时捕获的未建模字段（Go: `json:"-"`，不参与 maheshvara 自身的序列化）。 */
   RawExtra?: Record<string, unknown>
 }
 
@@ -38,7 +38,7 @@ export interface CanonicalMessage {
  * text / image（url 或 base64）/ audio / video / file / tool_output /
  * reasoning / 缓存控制等，未识别内容走 raw。
  */
-export interface CanonicalContentPart {
+export interface MaheshvaraContentPart {
   type: string
 
   text?: string
@@ -68,7 +68,12 @@ export interface CanonicalContentPart {
   signature?: string
   signature_provider?: string
   encrypted_content?: string
-  reasoning_summary?: CanonicalReasoningSummary[]
+  /** 密文签发方与签发时模型（信封 v2 铸造/回放门控用）。 */
+  encrypted_provider?: string
+  encrypted_model?: string
+  reasoning_summary?: MaheshvaraReasoningSummary[]
+  /** 原样承载 Claude text block 的引用标注（来源出处脚注），回放时逐字写回。 */
+  citations?: Record<string, unknown>[]
   cache_control?: unknown
   annotations?: Record<string, unknown>[]
   metadata?: Record<string, unknown>
@@ -77,19 +82,19 @@ export interface CanonicalContentPart {
 }
 
 /** Responses 风格的输入项（item 级而非 message 级）。 */
-export interface CanonicalInputItem {
+export interface MaheshvaraInputItem {
   type: string
   role?: string
-  content?: CanonicalContentPart[]
+  content?: MaheshvaraContentPart[]
   call_id?: string
   output?: string
   item_id?: string
-  reasoning?: CanonicalReasoning
+  reasoning?: MaheshvaraReasoning
   RawExtra?: Record<string, unknown>
 }
 
 /** 工具定义。parameters（OpenAI 风格）与 input_schema（Anthropic 风格）二选一。 */
-export interface CanonicalTool {
+export interface MaheshvaraTool {
   type: string
   name?: string
   description?: string
@@ -108,7 +113,7 @@ export interface CanonicalTool {
 }
 
 /** 一次工具调用（assistant 侧产出）。arguments 为原始 JSON 值。 */
-export interface CanonicalToolCall {
+export interface MaheshvaraToolCall {
   id?: string
   type: string
   name?: string
@@ -121,25 +126,27 @@ export interface CanonicalToolCall {
 }
 
 /** 推理/思考配置与产出。 */
-export interface CanonicalReasoning {
+export interface MaheshvaraReasoning {
   effort?: string
   summary?: string
-  summary_parts?: CanonicalReasoningSummary[]
+  summary_parts?: MaheshvaraReasoningSummary[]
   text?: string
   encrypted_content?: string
   raw?: Record<string, unknown>
 }
 
 /** 思考开关（Anthropic thinking / Gemini thinkingConfig 风格）。 */
-export interface CanonicalThinking {
+export interface MaheshvaraThinking {
   enabled: boolean
   effort?: string
+  /** Claude 4.5+ 自适应思考：无固定预算，力度经 output_config.effort 下发。 */
+  adaptive?: boolean
   budget_tokens?: number
   include_summary?: boolean
 }
 
 /** 音频输出配置（TTS / 音频模态输出）。 */
-export interface CanonicalAudioConfig {
+export interface MaheshvaraAudioConfig {
   voice?: string
   format?: string
   codec?: string
@@ -148,14 +155,14 @@ export interface CanonicalAudioConfig {
 }
 
 /** Gemini 风格的安全设置。 */
-export interface CanonicalSafetySetting {
+export interface MaheshvaraSafetySetting {
   category?: string
   threshold?: string
   action?: string
 }
 
 /** 结构化输出（JSON Schema / json_object）。 */
-export interface CanonicalResponseFormat {
+export interface MaheshvaraResponseFormat {
   type: string
   name?: string
   description?: string
@@ -168,12 +175,12 @@ export interface CanonicalResponseFormat {
  * 统一请求。字段覆盖四种协议的公共能力与各家扩展；
  * 未知厂商字段解析进 RawExtra，由构造方决定是否透传。
  */
-export interface CanonicalRequest {
+export interface MaheshvaraRequest {
   model: string
   instructions?: string
 
-  messages?: CanonicalMessage[]
-  input_items?: CanonicalInputItem[]
+  messages?: MaheshvaraMessage[]
+  input_items?: MaheshvaraInputItem[]
 
   max_output_tokens?: number
   min_output_tokens?: number
@@ -195,22 +202,22 @@ export interface CanonicalRequest {
   top_a?: number
 
   stream?: boolean
-  stream_options?: CanonicalStreamOptions
+  stream_options?: MaheshvaraStreamOptions
 
-  tools?: CanonicalTool[]
+  tools?: MaheshvaraTool[]
   tool_choice?: unknown
   parallel_tool_calls?: boolean
 
-  response_format?: CanonicalResponseFormat
-  reasoning?: CanonicalReasoning
-  thinking?: CanonicalThinking
+  response_format?: MaheshvaraResponseFormat
+  reasoning?: MaheshvaraReasoning
+  thinking?: MaheshvaraThinking
   modalities?: string[]
-  audio?: CanonicalAudioConfig
+  audio?: MaheshvaraAudioConfig
   prediction?: unknown
   service_tier?: string
   safety_identifier?: string
   verbosity?: string
-  safety_settings?: CanonicalSafetySetting[]
+  safety_settings?: MaheshvaraSafetySetting[]
   cache_control?: unknown
 
   user?: string
@@ -234,13 +241,13 @@ export interface CanonicalRequest {
 }
 
 /** 统一响应（非流式）。 */
-export interface CanonicalResponse {
+export interface MaheshvaraResponse {
   id: string
   model: string
   created_at: number
   status: string
 
-  output?: CanonicalOutputItem[]
+  output?: MaheshvaraOutputItem[]
 
   stop_reason?: string
   incomplete_details?: Record<string, unknown>
@@ -248,35 +255,35 @@ export interface CanonicalResponse {
   service_tier?: string
   system_fingerprint?: string
 
-  usage?: CanonicalUsage
-  error?: CanonicalError
+  usage?: MaheshvaraUsage
+  error?: MaheshvaraError
 
   RawExtra?: Record<string, unknown>
 }
 
 /** 响应输出项：消息 / 工具调用 / 推理等。 */
-export interface CanonicalOutputItem {
+export interface MaheshvaraOutputItem {
   id?: string
   type: string
   status?: string
   role?: string
 
-  content?: CanonicalContentPart[]
+  content?: MaheshvaraContentPart[]
 
   call_id?: string
   name?: string
   arguments?: unknown
-  tool_calls?: CanonicalToolCall[]
-  reasoning?: CanonicalReasoning
+  tool_calls?: MaheshvaraToolCall[]
+  reasoning?: MaheshvaraReasoning
 
-  summary?: CanonicalReasoningSummary[]
+  summary?: MaheshvaraReasoningSummary[]
   metadata?: Record<string, unknown>
 
   raw?: Record<string, unknown>
 }
 
 /** 推理摘要部件。 */
-export interface CanonicalReasoningSummary {
+export interface MaheshvaraReasoningSummary {
   type?: string
   text?: string
 }
@@ -285,13 +292,18 @@ export interface CanonicalReasoningSummary {
  * 统一用量。基本三段为必有字段；其余按上游支持情况可选填充，
  * estimated 系列与 estimated 标记用于无精确计量时的估算值。
  */
-export interface CanonicalUsage {
+export interface MaheshvaraUsage {
   input_tokens: number
   output_tokens: number
   total_tokens: number
 
   cached_input_tokens?: number
   cache_creation_input_tokens?: number
+  /** Claude 双 TTL 缓存写入分桶（5m/1h）。 */
+  cache_creation_5m_tokens?: number
+  cache_creation_1h_tokens?: number
+  /** 服务端工具提示词计费 token（Claude server_tool_use 等）。 */
+  tool_prompt_tokens?: number
   reasoning_tokens?: number
 
   text_input_tokens?: number
@@ -321,7 +333,7 @@ export interface CanonicalUsage {
 }
 
 /** 统一错误。 */
-export interface CanonicalError {
+export interface MaheshvaraError {
   message: string
   type?: string
   param?: string
@@ -336,7 +348,7 @@ export interface CanonicalError {
  * 完成（finish_reason + usage）、错误、以及 Responses 风格的
  * 完整对象快照（response / output_item / content_part）。
  */
-export interface CanonicalStreamEvent {
+export interface MaheshvaraStreamEvent {
   type: string
 
   response_id?: string
@@ -369,26 +381,41 @@ export interface CanonicalStreamEvent {
   sequence?: number
   created_at?: number
 
-  usage?: CanonicalUsage
-  response?: CanonicalResponse
-  output_item?: CanonicalOutputItem
-  content_part?: CanonicalContentPart
-  error?: CanonicalError
+  /** 随文本事件携带的出处标注（Gemini grounding 包装 / Claude citations）。 */
+  annotations?: Record<string, unknown>[]
+
+  usage?: MaheshvaraUsage
+  response?: MaheshvaraResponse
+  output_item?: MaheshvaraOutputItem
+  content_part?: MaheshvaraContentPart
+  error?: MaheshvaraError
 
   raw?: Record<string, unknown>
 }
 
-// Maheshvara 是内部协议的稳定名称，以下别名保持与 Go 侧
-// canonical.go 的别名表一一对应。
-export type MaheshvaraRequest = CanonicalRequest
-export type MaheshvaraMessage = CanonicalMessage
-export type MaheshvaraContentPart = CanonicalContentPart
-export type MaheshvaraInputItem = CanonicalInputItem
-export type MaheshvaraTool = CanonicalTool
-export type MaheshvaraToolCall = CanonicalToolCall
-export type MaheshvaraReasoning = CanonicalReasoning
-export type MaheshvaraResponse = CanonicalResponse
-export type MaheshvaraOutputItem = CanonicalOutputItem
-export type MaheshvaraUsage = CanonicalUsage
-export type MaheshvaraError = CanonicalError
-export type MaheshvaraStreamEvent = CanonicalStreamEvent
+/**
+ * 计算终态完整值相对已累计增量的差分（Go deltaVsAccumulated）：
+ * 相等则无输出、终值以累计值为前缀则只补后缀、否则整体替换
+ * （replaced=true，调用方负责重置累计器并输出完整 delta）。
+ * 流解码器处理"终块携带完整快照"的上游时用它避免重复拼接。
+ */
+export function deltaVsAccumulated(accumulated: string, complete: string): { delta: string; replaced: boolean } {
+  if (complete === accumulated) return { delta: '', replaced: false }
+  if (complete.startsWith(accumulated)) return { delta: complete.slice(accumulated.length), replaced: false }
+  return { delta: complete, replaced: true }
+}
+
+/**
+ * 原始对象为底、类型化非空字段覆盖其上（Go mergeRawOverTyped 的对象版）：
+ * 服务端工具项载荷 / usage 未知键等往返保真的统一机制。
+ */
+export function mergeRawOverTyped(
+  raw: Record<string, unknown> | undefined,
+  typed: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...raw }
+  for (const [key, value] of Object.entries(typed)) {
+    if (value !== undefined && value !== null) merged[key] = value
+  }
+  return merged
+}

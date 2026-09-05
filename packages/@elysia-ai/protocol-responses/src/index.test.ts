@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CanonicalRequest } from '@elysia-ai/canonical'
-import { CONTENT_TEXT } from '@elysia-ai/canonical'
+import type { MaheshvaraRequest } from '@elysia-ai/maheshvara'
+import { CONTENT_TEXT } from '@elysia-ai/maheshvara'
 import {
   ResponsesStreamDecoder,
   decodeResponsesResponse,
@@ -14,7 +14,7 @@ function sse(data: string) {
 
 describe('encodeResponsesRequest', () => {
   it('消息 → input 数组（system 剔除进 instructions）', () => {
-    const req: CanonicalRequest = {
+    const req: MaheshvaraRequest = {
       model: 'gpt-5',
       instructions: 'sys prompt',
       messages: [
@@ -101,5 +101,86 @@ describe('ResponsesStreamDecoder', () => {
     expect(events[0].type).toBe('response.failed')
     expect(events[0].error?.message).toBe('boom')
     expect(decoder.getTerminal()).toBe(true)
+  })
+})
+
+describe('elysia-api 深度更新同步（v0.2.0）', () => {
+  it('reasoning.effort:"none" 整体省略（上游会静默当 low 档执行）', () => {
+    const body = encodeResponsesRequest({ model: 'gpt-5', messages: [], reasoning: { effort: 'none' } })
+    expect(body['reasoning']).toEqual({})
+    const body2 = encodeResponsesRequest({ model: 'gpt-5', messages: [], reasoning: { effort: 'high' } })
+    expect(body2['reasoning']).toEqual({ effort: 'high' })
+  })
+
+  it('携带加密推理时自动追加 include:["reasoning.encrypted_content"]，已含则不重复', () => {
+    const body = encodeResponsesRequest({
+      model: 'gpt-5',
+      messages: [{ role: 'assistant', content: [{ type: 'reasoning', reasoning_text: 't', encrypted_content: 'enc' }] }],
+    })
+    expect(body['include']).toEqual(['reasoning.encrypted_content'])
+
+    const body2 = encodeResponsesRequest({
+      model: 'gpt-5',
+      messages: [],
+      input_items: [{ type: 'reasoning', reasoning: { encrypted_content: 'enc2' } }],
+      include: ['reasoning.encrypted_content'],
+    })
+    expect(body2['include']).toEqual(['reasoning.encrypted_content'])
+
+    const body3 = encodeResponsesRequest({ model: 'gpt-5', messages: [] })
+    expect(body3['include']).toBeUndefined()
+  })
+
+  it('user 顶层写回', () => {
+    const body = encodeResponsesRequest({ model: 'gpt-5', messages: [], user: 'u-9' })
+    expect(body['user']).toBe('u-9')
+  })
+
+  it('server-tool 输出项整块 raw 捕获（载荷不缩水）', () => {
+    const response = decodeResponsesResponse({
+      id: 'resp_1', object: 'response', status: 'completed', created_at: 1, model: 'gpt-5',
+      output: [
+        { id: 'ws_1', type: 'web_search_call', status: 'completed', action: { type: 'search', query: 'hi' }, results: [{ url: 'https://e' }] },
+      ],
+      usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+    })
+    const item = response.output?.[0]
+    expect(item?.type).toBe('web_search_call')
+    expect(item?.raw).toEqual({
+      id: 'ws_1', type: 'web_search_call', status: 'completed',
+      action: { type: 'search', query: 'hi' }, results: [{ url: 'https://e' }],
+    })
+    expect(response.usage?.web_search_call_count).toBe(1)
+  })
+
+  it('response.reasoning_signature.delta 专线路由为签名事件（不再误入推理文本）', () => {
+    const decoder = new ResponsesStreamDecoder()
+    const events = decoder.decode(sse(JSON.stringify({
+      type: 'response.reasoning_signature.delta', item_id: 'rs_1', output_index: 0, delta: 'sig-part',
+    })))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'response.reasoning_signature.delta',
+      reasoning_signature_delta: 'sig-part',
+      reasoning_signature_provider: 'openai',
+    })
+    expect(events[0].reasoning_delta).toBeUndefined()
+
+    const decoder2 = new ResponsesStreamDecoder()
+    const events2 = decoder2.decode(sse(JSON.stringify({
+      type: 'response.reasoning_signature.delta', delta: 's2', provider: 'anthropic',
+    })))
+    expect(events2[0].reasoning_signature_provider).toBe('anthropic')
+  })
+
+  it('response.output_item.done 携带完整推理项（含密文）不丢弃', () => {
+    const decoder = new ResponsesStreamDecoder()
+    const events = decoder.decode(sse(JSON.stringify({
+      type: 'response.output_item.done', output_index: 0,
+      item: { id: 'rs_1', type: 'reasoning', status: 'completed', summary: [], encrypted_content: 'enc-final' },
+    })))
+    const item = events.find((e) => e.type === 'response.output_item.done')?.output_item
+    expect(item?.type).toBe('reasoning')
+    expect(item?.reasoning?.encrypted_content).toBe('enc-final')
   })
 })

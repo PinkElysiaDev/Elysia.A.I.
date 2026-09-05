@@ -1,12 +1,13 @@
 /**
- * Gemini SSE 流 → canonical 流事件。
+ * Gemini SSE 流 → maheshvara 流事件。
  * 逐行为对齐 maheshvara_stream_decoder_gemini.go。
  * 注意：Gemini 流式（streamGenerateContent，alt=sse）每个 chunk 都是
  * 一个完整的 GenerateContentResponse。
  */
 
-import type { CanonicalContentPart, CanonicalStreamEvent, SSEEvent } from '@elysia-ai/canonical'
+import type { MaheshvaraContentPart, MaheshvaraStreamEvent, SSEEvent } from '@elysia-ai/maheshvara'
 import {
+  ANNOTATION_GEMINI_GROUNDING,
   CONTENT_FILE,
   CONTENT_IMAGE,
   CONTENT_TEXT,
@@ -20,7 +21,7 @@ import {
   EVENT_TEXT_DELTA,
   EVENT_USAGE_DELTA,
   SIGNATURE_PROVIDER_GEMINI,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 import {
   asArray,
   asRecord,
@@ -31,21 +32,21 @@ import {
   intValue,
   stringValue,
   usageFromRawMap,
-} from '@elysia-ai/canonical'
+} from '@elysia-ai/maheshvara'
 
-function canonicalMediaContentType(mediaType: string): string {
+function maheshvaraMediaContentType(mediaType: string): string {
   if (mediaType.startsWith('image/')) return CONTENT_IMAGE
   if (mediaType.startsWith('audio/')) return 'audio'
   if (mediaType.startsWith('video/')) return 'video'
   return CONTENT_FILE
 }
 
-function geminiStreamMediaPart(part: Record<string, unknown>): CanonicalContentPart | undefined {
+function geminiStreamMediaPart(part: Record<string, unknown>): MaheshvaraContentPart | undefined {
   const inline = asRecord(firstNonNilValue(part['inlineData'], part['inline_data']))
   if (inline) {
     const mediaType = firstNonEmptyString(stringValue(inline['mimeType']), stringValue(inline['mime_type']))
     return {
-      type: canonicalMediaContentType(mediaType),
+      type: maheshvaraMediaContentType(mediaType),
       data: stringValue(inline['data']),
       media_type: mediaType || undefined,
       mime_type: mediaType || undefined,
@@ -56,7 +57,7 @@ function geminiStreamMediaPart(part: Record<string, unknown>): CanonicalContentP
   if (file) {
     const mediaType = firstNonEmptyString(stringValue(file['mimeType']), stringValue(file['mime_type']))
     return {
-      type: canonicalMediaContentType(mediaType),
+      type: maheshvaraMediaContentType(mediaType),
       uri: firstNonEmptyString(stringValue(file['fileUri']), stringValue(file['file_uri'])) || undefined,
       media_type: mediaType || undefined,
       mime_type: mediaType || undefined,
@@ -72,6 +73,8 @@ export class GeminiStreamDecoder {
   private terminal = false
   private sawWireEvent = false
   private sawOutput = false
+  private sawFinishReason = false
+  private nextSyntheticCallID = 0
   private readonly finishedChoices = new Set<number>()
   private readonly seenChoices = new Set<number>()
 
@@ -87,11 +90,16 @@ export class GeminiStreamDecoder {
     return this.sawOutput
   }
 
-  private baseEvent(type: string, raw: Record<string, unknown>): CanonicalStreamEvent {
+  /** 上游是否发过真实终态原因（区别于合成 [DONE] 终态）。 */
+  getSawFinishReason(): boolean {
+    return this.sawFinishReason
+  }
+
+  private baseEvent(type: string, raw: Record<string, unknown>): MaheshvaraStreamEvent {
     return { type, response_id: this.responseID, model: this.model, raw }
   }
 
-  decode(event: SSEEvent): CanonicalStreamEvent[] {
+  decode(event: SSEEvent): MaheshvaraStreamEvent[] {
     const data = event.data.trim()
     if (data === '') return []
     this.sawWireEvent = true
@@ -129,10 +137,10 @@ export class GeminiStreamDecoder {
     return true
   }
 
-  private decodeGemini(raw: Record<string, unknown>): CanonicalStreamEvent[] {
+  private decodeGemini(raw: Record<string, unknown>): MaheshvaraStreamEvent[] {
     this.responseID = firstNonEmptyString(stringValue(raw['responseId']), this.responseID)
     this.model = firstNonEmptyString(stringValue(raw['modelVersion']), this.model)
-    const events: CanonicalStreamEvent[] = []
+    const events: MaheshvaraStreamEvent[] = []
     const usage = usageFromRawMap(asRecord(raw['usageMetadata']))
     if (usage) {
       const usageEvent = this.baseEvent(EVENT_USAGE_DELTA, raw)
@@ -146,6 +154,10 @@ export class GeminiStreamDecoder {
       if (!candidate) continue
       const choiceIndex = intValue(candidate['index'])
       this.seenChoices.add(choiceIndex)
+      // 搜索/据实来源标注随 candidate 到达：挂到同 chunk 首个文本事件上，
+      // 渲染层据此回写 candidate.groundingMetadata。
+      const grounding = asRecord(candidate['groundingMetadata'])
+      let groundingEmitted = false
       const content = asRecord(candidate['content']) ?? {}
       const parts = asArray(content['parts']) ?? []
       parts.forEach((partValue, partIndex) => {
@@ -170,12 +182,19 @@ export class GeminiStreamDecoder {
             textEvent.reasoning_delta = text
           } else {
             textEvent.delta = text
+            if (!groundingEmitted && grounding) {
+              groundingEmitted = true
+              textEvent.annotations = [{ [ANNOTATION_GEMINI_GROUNDING]: grounding }]
+            }
           }
           events.push(textEvent)
         }
         const functionCall = asRecord(part['functionCall'])
         if (functionCall) {
-          const callID = firstNonEmptyString(stringValue(functionCall['id']), `call_${choiceIndex}_${partIndex}`)
+          // 合成 id 用解码器级单调计数器：partIndex 是 chunk 内序号（每块
+          // 从 0 重新计），跨 chunk 的两个无 id 调用会撞成 call_0_0。
+          const callID = firstNonEmptyString(stringValue(functionCall['id']), `call_syn_${this.nextSyntheticCallID}`)
+          this.nextSyntheticCallID++
           const name = stringValue(functionCall['name'])
           const added = this.baseEvent(EVENT_FUNCTION_CALL_ADDED, raw)
           added.choice_index = choiceIndex
@@ -195,7 +214,7 @@ export class GeminiStreamDecoder {
         }
         const functionResponse = asRecord(part['functionResponse'])
         if (functionResponse) {
-          const canonicalPart: CanonicalContentPart = {
+          const maheshvaraPart: MaheshvaraContentPart = {
             type: CONTENT_TOOL_OUTPUT,
             tool_call_id: firstNonEmptyString(stringValue(functionResponse['id']), stringValue(functionResponse['name'])),
             tool_output: contentValueToString(functionResponse['response']),
@@ -204,7 +223,7 @@ export class GeminiStreamDecoder {
           const responseEvent = this.baseEvent(EVENT_CONTENT_PART_ADDED, raw)
           responseEvent.choice_index = choiceIndex
           responseEvent.content_index = partIndex
-          responseEvent.content_part = canonicalPart
+          responseEvent.content_part = maheshvaraPart
           events.push(responseEvent)
         }
         const mediaPart = geminiStreamMediaPart(part)
@@ -217,7 +236,7 @@ export class GeminiStreamDecoder {
         }
         const executable = asRecord(part['executableCode'])
         if (executable) {
-          const codePart: CanonicalContentPart = {
+          const codePart: MaheshvaraContentPart = {
             type: 'executable_code',
             text: stringValue(executable['code']),
             metadata: { language: executable['language'] },
@@ -231,7 +250,7 @@ export class GeminiStreamDecoder {
         }
         const execution = asRecord(part['codeExecutionResult'])
         if (execution) {
-          const resultPart: CanonicalContentPart = {
+          const resultPart: MaheshvaraContentPart = {
             type: 'code_execution_result',
             text: stringValue(execution['output']),
             metadata: { outcome: execution['outcome'] },
@@ -246,6 +265,7 @@ export class GeminiStreamDecoder {
       })
       const finishReason = stringValue(candidate['finishReason'])
       if (finishReason !== '') {
+        this.sawFinishReason = true
         this.finishedChoices.add(choiceIndex)
         const completedEvent = this.baseEvent(EVENT_RESPONSE_COMPLETED, raw)
         completedEvent.choice_index = choiceIndex
